@@ -1,0 +1,4 @@
+allowBuilds:
+  '@fission-ai/openspec': true
+  electron: true
+  esbuild: true

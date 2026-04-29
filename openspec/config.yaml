@@ -1,0 +1,16 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Electron, React, Vite, TypeScript, pnpm.
+  Code comment rule: functions over 40 lines must have a leading comment that explains intent, edge cases, or non-obvious behavior.
+  Keep comments useful. Do not restate what the code already says.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
