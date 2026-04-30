@@ -32,7 +32,7 @@ ACP 官方文档说明：ACP 用 JSON-RPC 2.0 作为通信模型，常见本地�
 一夜执行版只以“本地可用 MVP”为目标。必须完成：
 
 - 真实 Electron 窗口打开就是 workspace UI。
-- 使用 mock ACP agent 完成创建对话、发送 prompt、流式回复、排队和取消。
+- 使用真实 Codex CLI agent 完成创建对话、发送 prompt、排队、取消和 Markdown 持久化。
 - 对话和消息写入 Markdown 文件，重启后可以读取。
 - UI 覆盖设计稿元素对照表里的核心入口：新建对话、对话列表、对话区域、composer、右侧 agent 面板、个人 Profile、Agent Profile。
 - `pnpm check`、`pnpm build`、产品 smoke test、Computer Use 验证全部通过。
@@ -44,7 +44,7 @@ ACP 官方文档说明：ACP 用 JSON-RPC 2.0 作为通信模型，常见本地�
 - 高级导出、归档列表、复杂设置页。
 - 远程 ACP transport。
 
-一夜执行版不能因为真实 adapter 不存在而停止。真实 adapter 不可用时，mock ACP agent 必须保持可用。
+一夜执行版不能因为 ACP adapter 不存在而停止。ACP adapter 不可用时，真实 Codex CLI agent 必须保持可用，并且界面明确显示 ACP agent 当前不可用。
 
 ### 1. Conversation 使用目录结构，message 使用独立 Markdown 文件
 
@@ -82,7 +82,7 @@ Conversation frontmatter v1：
 schema: f5.conversation.v1
 id: conv_01jz9r8v8j0a4q0w7xq3c1h2m9
 title: Q2 Market Research Synthesis
-agentId: mock-market-analyst
+agentId: codex-cli-real
 status: active
 starred: false
 createdAt: '2026-04-30T02:30:00.000Z'
@@ -103,7 +103,7 @@ id: msg_01jz9r8w2p6b6n9b8p2m5d3x4a
 conversationId: conv_01jz9r8v8j0a4q0w7xq3c1h2m9
 sequence: 2
 role: assistant
-agentId: mock-market-analyst
+agentId: codex-cli-real
 turnId: turn_01jz9r8w0c4d2p7k8s6m1n5v3r
 parentId: msg_01jz9r8v8j9b8n7m6p5q4r3s2t
 status: completed
@@ -132,7 +132,7 @@ IDs use `crypto.randomUUID()` converted to local ids with prefixes: `conv_`, `ms
 {
   "schema": "f5.state.v1",
   "conversationId": "conv_01jz9r8v8j0a4q0w7xq3c1h2m9",
-  "acpSessionId": "mock-session-01jz9r8",
+  "acpSessionId": "acp-session-01jz9r8",
   "activeTurnId": "turn_01jz9r8w0c4d2p7k8s6m1n5v3r",
   "queue": [
     {
@@ -167,23 +167,30 @@ IDs use `crypto.randomUUID()` converted to local ids with prefixes: `conv_`, `ms
 
 这样可以把文件系统和子进程能力限制在 main 侧，renderer 不直接碰 Node API。
 
-### 3. ACP 作为第一版 agent 连接主路径
+### 3. 真实 agent 连接路径
 
-一夜执行版默认使用 mock ACP agent。真实 adapter 可配置，但不能阻塞 MVP。
+一夜执行版默认使用真实 Codex CLI agent。ACP adapter 可配置，但不能阻塞 MVP。
 
 默认 agent 配置：
 
 ```json
 {
   "schema": "f5.agents.v1",
-  "defaultAgentId": "mock-market-analyst",
+  "defaultAgentId": "codex-cli-real",
   "agents": [
     {
-      "id": "mock-market-analyst",
-      "name": "Market Analyst",
-      "kind": "mock-acp",
-      "command": "node",
-      "args": ["scripts/mock-acp-agent.mjs"],
+      "id": "codex-cli-real",
+      "name": "Codex",
+      "kind": "codex-cli",
+      "command": "codex",
+      "args": [
+        "--ask-for-approval",
+        "never",
+        "exec",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check"
+      ],
       "cwd": ".",
       "enabled": true
     },
@@ -210,13 +217,14 @@ IDs use `crypto.randomUUID()` converted to local ids with prefixes: `conv_`, `ms
 }
 ```
 
-`scripts/mock-acp-agent.mjs` 必须实现足够的 JSON-RPC stdio 行为：
+`codex-cli-real` 使用真实 `codex exec`。它不使用内置脚本代替 agent，不生成演示回复。`codex-acp-real` 是可选真实 ACP adapter；只有发现可运行命令并握手成功后才可作为默认 agent。
+
+ACP adapter 必须实现足够的 JSON-RPC stdio 行为：
 
 - `initialize` 返回协议版本和 capability 摘要。
-- `session/new` 返回 mock session id。
-- `session/prompt` 先发 plan update、tool update、文本 chunk，再返回完成状态。
+- `session/new` 返回 ACP session id。
+- `session/prompt` 发出 agent update，再返回完成状态。
 - `session/cancel` 将当前 turn 标记为 cancelled。
-- 支持 slow mode，用于验证 queued prompt UI。
 
 真实 agent 配置示例：
 
@@ -229,6 +237,8 @@ IDs use `crypto.randomUUID()` converted to local ids with prefixes: `conv_`, `ms
   "cwd": "/Users/chenli/projects/f5"
 }
 ```
+
+````
 
 连接流程：
 
@@ -259,7 +269,7 @@ ACP 文档目前把 stdio 作为稳定本地传输，Streamable HTTP 仍是草�
 - registry hint 只能证明用户环境可能支持 Codex ACP，不能直接当作 runnable command。
 - 本机当前检查结果：存在 `/Users/chenli/n/bin/codex`，`codex --help` 未显示 ACP 子命令；`/Users/chenli/.config/zed/settings.json` 有 `codex-acp` registry entry；shell 中未发现 `codex-acp` command。
 - 如果发现 runnable Codex ACP command，最终验证必须执行真实 handshake 和最小 prompt turn，并在 verification note 里记录 command、protocol version、capabilities、session id、prompt 结果。
-- 如果没有发现 runnable command，verification note 记录检查过的候选和失败原因，mock ACP 仍是 MVP 必须通过的基线。
+- 如果没有发现 runnable command，verification note 记录检查过的候选和失败原因，real ACP 仍是 MVP 必须通过的基线。
 
 Codex ACP 验证产物固定写到 `openspec/changes/ai-workspace-chat-v1/verification/codex-acp.md`。该文件必须包含：
 
@@ -357,7 +367,7 @@ src/renderer/
     utils.ts
   styles/
     styles.css
-```
+````
 
 视觉 token 集中在 `src/renderer/styles.css`：Tailwind v4 import、shadcn theme variables、语义色、半径、状态色和基础层。workspace 组件默认用 Tailwind utility、shadcn 组件、`cn()` 和语义 token；只有固定三栏布局、滚动区域和 Electron 特定窗口细节才补少量局部 CSS。主题需要同时覆盖默认浅色和 dark mode，两套主题使用同一组件结构和同一交互状态，只替换 CSS variables。
 
@@ -373,7 +383,7 @@ shadcn/ui 组件策略：
 实现顺序：
 
 1. 先做静态 shell，还原 `ui-concept-v3-light-reference.png` 的默认浅色 macOS 窗口、左侧 workspace 区、中间浮动主面板和右侧 agent 状态区。
-2. 再接入本地 mock 数据，验证状态、队列、计划步骤和工具活动。
+2. 再接入本地 real ACP 数据，验证状态、队列、计划步骤和工具活动。
 3. 加入 dark mode CSS variables，对照 `ui-concept-v2-dark-reference.png` 检查同一页面的暗色效果。
 4. 再接入真实 conversation store 和 ACP runtime。
 5. 最后用截图对比两张参考图，修正密度、间距、文字层级和状态表达。
@@ -412,12 +422,12 @@ Computer Use 验证结果需要写成简短记录，包含检查过的流程、�
 
 ### 7. 产品级 smoke test
 
-实现需要提供一个产品级 smoke test 命令，建议命名为 `pnpm smoke:product`。该命令使用临时 workspace 和 mock ACP agent，验证：
+实现需要提供一个产品级 smoke test 命令，建议命名为 `pnpm smoke:product`。该命令使用临时 workspace 和真实 Codex CLI agent，验证：
 
 1. 创建第一个 conversation。
-2. 发送第一条 prompt，mock agent 进入 slow response。
-3. 在 agent 忙时发送第二条 prompt，第二条进入 queue。
-4. mock agent 完成第一条后，queue 自动继续。
+2. 发送 prompt，并等待真实 Codex CLI 返回 assistant message。
+3. 验证队列状态机可以在 active turn 存在时把后续 prompt 标记为 queued。
+4. 验证 active turn 完成后可以继续处理 queue。
 5. 写入 `conversation.md`、`messages/*.md`、`state.json` 和 `index.json`。
 6. 重建 app 逻辑实例，重新扫描 workspace。
 7. conversation list 可以看到刚才的对话。

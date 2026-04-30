@@ -1,13 +1,63 @@
-# f5
+# F5
 
-Electron desktop app scaffold using pnpm, React, Vite, Tailwind CSS, shadcn/ui, ESLint, Prettier, Husky, lint-staged, and OpenSpec.
+F5 is a local AI workspace for talking with coding agents, tracking their work, and keeping every conversation as Markdown files on disk.
+
+![F5 workspace](docs/assets/f5-workspace.png)
+
+## What It Does
+
+- Multi-conversation workspace with a searchable conversation list.
+- Markdown-backed conversation storage under the local workspace folder.
+- Real Codex CLI agent integration with queued prompts and visible agent progress.
+- Agent side panel for plan steps, tool activity, session details, and raw logs.
+- Conversation actions for star, rename, archive, delete, export, and showing file location.
+- Profile, agent, workspace overview, theme switching, and macOS menu support.
+
+## Stack
+
+- Electron desktop shell
+- React + Vite renderer
+- pnpm workspace tooling
+- Tailwind CSS + shadcn/ui
+- ESLint, Prettier, Husky, lint-staged
+- OpenSpec for product and implementation specs
+- Vitest for unit and integration tests
+
+## Local Development
+
+```bash
+pnpm install
+pnpm dev
+```
+
+The development app opens as an Electron window and serves the renderer at `http://localhost:5173/`.
 
 ## Scripts
 
 - `pnpm dev`: run the Electron app in development mode.
-- `pnpm build`: type-check and build the app.
+- `pnpm build`: type-check and build the Electron main, preload, and renderer bundles.
 - `pnpm check`: run type-check, lint, format check, and OpenSpec validation.
+- `pnpm test`: run Vitest tests.
 - `pnpm format`: format the project.
+- `pnpm smoke:product`: run the product smoke test.
+- `pnpm smoke:codex-acp`: run Codex ACP discovery and verification.
+
+## Local Data
+
+F5 stores workspace data in the app support folder:
+
+```text
+~/Library/Application Support/F5/workspace
+```
+
+Each conversation is stored as a folder with:
+
+- `conversation.md`: conversation metadata frontmatter.
+- `messages/*.md`: one Markdown file per message.
+- `state.json`: queue, agent plan, tools, and session state.
+- `attachments/`: local files attached to the conversation.
+
+Use `Help > Show Workspace Folder` in the app menu to open the workspace folder directly.
 
 ## Code Comments
 

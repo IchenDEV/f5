@@ -7,18 +7,27 @@ The system SHALL provide a product-level smoke test that verifies the core local
 #### Scenario: Run smoke test
 
 - **WHEN** the smoke test command runs
-- **THEN** it creates a temporary workspace, starts the app logic against mock ACP, creates conversations, sends prompts, queues prompts, and verifies persisted files
+- **THEN** it creates a temporary workspace, starts the app logic against real Codex CLI, creates a conversation, sends a prompt, verifies queue state handling, and verifies persisted files
 
-### Requirement: Create-send-queue workflow
+### Requirement: Create-send workflow
 
-The smoke test SHALL verify creating a conversation, sending a prompt, and queueing a second prompt.
+The smoke test SHALL verify creating a conversation and sending a prompt through the real Codex CLI agent.
+
+#### Scenario: Verify prompt workflow
+
+- **WHEN** the smoke test sends a prompt
+- **THEN** a user message and real assistant message are persisted
+- **AND** both messages are visible after app logic restarts
+
+### Requirement: Queue state workflow
+
+The smoke test or unit suite SHALL verify that a prompt submitted during an active turn becomes queued.
 
 #### Scenario: Verify prompt queue workflow
 
-- **WHEN** the mock ACP agent is configured to respond slowly
-- **THEN** the first prompt becomes active
-- **AND** the second prompt appears as queued
-- **AND** both prompts are visible in local state
+- **WHEN** a conversation already has an active turn id
+- **THEN** a new prompt appears as queued
+- **AND** the queued prompt is visible in local state
 
 ### Requirement: Restart persistence workflow
 
@@ -38,7 +47,7 @@ The smoke test SHALL verify that conversation files are readable outside the app
 
 - **WHEN** the smoke test reads `conversation.md` and `messages/*.md`
 - **THEN** each file has valid YAML frontmatter
-- **AND** message bodies contain the prompt or mock agent response text
+- **AND** message bodies contain the prompt or real Codex CLI response text
 
 ### Requirement: Desktop smoke flow
 
@@ -57,4 +66,4 @@ The system SHALL include a real Codex ACP smoke flow when a runnable Codex ACP a
 
 - **WHEN** Codex ACP discovery and handshake succeed
 - **THEN** the smoke flow creates a Codex-backed conversation, sends a short prompt, persists the response, and records the verification result
-- **AND** failure of this optional flow does not replace the required mock ACP smoke flow
+- **AND** failure of this optional flow does not replace the required real Codex CLI smoke flow

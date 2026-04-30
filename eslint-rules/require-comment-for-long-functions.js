@@ -3,7 +3,11 @@ function getFunctionLineCount(node) {
 }
 
 function hasLeadingComment(sourceCode, node) {
-  return sourceCode.getCommentsBefore(node).length > 0;
+  if (sourceCode.getCommentsBefore(node).length > 0) return true;
+  if (node.parent?.type === 'MethodDefinition') {
+    return sourceCode.getCommentsBefore(node.parent).length > 0;
+  }
+  return false;
 }
 
 function reportIfLongAndUncommented(context, node, maxLines) {

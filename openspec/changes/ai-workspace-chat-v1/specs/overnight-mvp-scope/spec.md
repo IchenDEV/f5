@@ -12,12 +12,12 @@ The system SHALL define a one-night MVP target that can be completed by an auton
 
 ### Requirement: Required one-night scope
 
-The one-night MVP SHALL include local Markdown conversations, the approved workspace UI, mock ACP chat, queued prompts, profile pages, and verification evidence.
+The one-night MVP SHALL include local Markdown conversations, the approved workspace UI, real Codex CLI chat, queued prompts, profile pages, and verification evidence.
 
 #### Scenario: One-night scope check
 
 - **WHEN** one-night implementation is reviewed
-- **THEN** the app can create conversations, write Markdown files, send prompts to the mock ACP agent, show queued prompts, switch conversations, open profile pages, and pass smoke tests
+- **THEN** the app can create conversations, write Markdown files, send prompts to the real Codex CLI agent, show queued prompts, switch conversations, open profile pages, and pass smoke tests
 
 ### Requirement: Real Codex ACP verification preference
 
@@ -37,7 +37,7 @@ The one-night MVP SHALL defer real Claude Code or Codex ACP adapter integration 
 
 - **WHEN** a real ACP adapter command is missing or fails initialization
 - **THEN** the app marks that agent unavailable
-- **AND** the mock ACP agent remains usable for product demonstration and tests
+- **AND** the real Codex CLI agent remains usable for product verification and tests
 
 ### Requirement: No blocking optional features
 

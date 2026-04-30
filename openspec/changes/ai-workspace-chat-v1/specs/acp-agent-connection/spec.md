@@ -10,26 +10,26 @@ The system SHALL allow local ACP agents to be configured with command, args, cwd
 - **THEN** it loads configured agents from local agent configuration
 - **AND** invalid agent entries are shown as unavailable instead of crashing the app
 
-### Requirement: Default mock ACP agent
+### Requirement: Default real Codex CLI agent
 
-The system SHALL ship with a default mock ACP agent for first-version local operation and tests.
+The system SHALL ship with a default real Codex CLI agent for first-version local operation and tests.
 
-#### Scenario: Load default mock agent
+#### Scenario: Load default real Codex CLI agent
 
 - **WHEN** no user agent configuration exists
-- **THEN** the system creates or uses a default `mock-market-analyst` agent
-- **AND** that agent runs through `node scripts/mock-acp-agent.mjs`
+- **THEN** the system creates or uses a default `codex-cli-real` agent
+- **AND** that agent runs through real `codex exec`
 - **AND** new conversations can use it without external tools
 
-### Requirement: Real adapter fallback
+### Requirement: ACP adapter fallback
 
-The system SHALL keep the mock ACP agent usable when a real adapter is unavailable.
+The system SHALL keep the real Codex CLI agent usable when a real ACP adapter is unavailable.
 
-#### Scenario: Real adapter command missing
+#### Scenario: ACP adapter command missing
 
 - **WHEN** a configured real ACP adapter command does not exist or fails initialization
 - **THEN** the app marks that agent unavailable
-- **AND** the default mock ACP agent remains selectable and runnable
+- **AND** the default real Codex CLI agent remains selectable and runnable
 
 ### Requirement: Codex ACP real adapter profile
 
@@ -52,15 +52,15 @@ The system SHALL initialize an ACP agent before creating or using a session.
 - **AND** sends `initialize`
 - **AND** records the returned protocol version and capabilities
 
-### Requirement: Mock ACP behavior
+### Requirement: Real Codex CLI behavior
 
-The mock ACP agent SHALL implement deterministic prompt behavior for UI and smoke tests.
+The real Codex CLI agent SHALL execute prompts through the installed Codex CLI.
 
-#### Scenario: Mock agent prompt turn
+#### Scenario: Real Codex CLI prompt turn
 
-- **WHEN** the app sends `session/prompt` to the mock ACP agent
-- **THEN** the mock agent emits plan updates, tool updates, streaming text chunks, and a completed stop state
-- **AND** slow mode can keep the first turn active long enough to queue a second prompt
+- **WHEN** the app sends a prompt to `codex-cli-real`
+- **THEN** the main process runs `codex exec`
+- **AND** the final assistant text is persisted as a Markdown message
 
 ### Requirement: ACP session lifecycle
 

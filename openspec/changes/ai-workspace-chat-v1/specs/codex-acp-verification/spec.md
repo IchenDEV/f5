@@ -43,13 +43,13 @@ The system SHALL run a minimal real prompt verification when Codex ACP handshake
 
 ### Requirement: Codex ACP failure does not block MVP
 
-The system SHALL keep mock ACP verification as the required MVP baseline when real Codex ACP is unavailable.
+The system SHALL keep real ACP verification as the required MVP baseline when real Codex ACP is unavailable.
 
 #### Scenario: Codex ACP unavailable
 
 - **WHEN** no runnable Codex ACP adapter is discovered or handshake fails
 - **THEN** the verification note records the command checked and error summary
-- **AND** mock ACP smoke test and Computer Use verification remain required
+- **AND** real ACP smoke test and Computer Use verification remain required
 - **AND** the app does not claim real Codex ACP support
 
 ### Requirement: Codex ACP profile display

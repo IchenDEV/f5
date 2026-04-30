@@ -46,7 +46,23 @@ export default tseslint.config(
   {
     files: ['src/renderer/components/ui/**/*.{ts,tsx}'],
     rules: {
+      'local/require-comment-for-long-functions': 'off',
       'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        setTimeout: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['**/*.test.{ts,tsx,js,mjs,cjs}'],
+    rules: {
+      'local/require-comment-for-long-functions': 'off',
     },
   },
   prettier,
