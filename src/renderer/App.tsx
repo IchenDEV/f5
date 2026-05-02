@@ -68,6 +68,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import f5LogoDarkUrl from '@/assets/f5-logo-dark.png';
 import f5LogoUrl from '@/assets/f5-logo.png';
 import { fallbackSnapshot } from '@/data/fallback';
 import { f5Api } from '@/lib/api';
@@ -86,6 +87,7 @@ import type {
 } from '../shared/types';
 
 type ThemePreference = UpdateProfileInput['theme'];
+type IconThemePreference = UpdateProfileInput['iconTheme'];
 type ThemeMode = 'light' | 'dark';
 
 function getSystemTheme(): ThemeMode {
@@ -115,12 +117,14 @@ function WorkspaceApp(): React.JSX.Element {
   const [listOpen, setListOpen] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>('light');
+  const [iconThemePreference, setIconThemePreference] = useState<IconThemePreference>('system');
   const [systemTheme, setSystemTheme] = useState<ThemeMode>(() => getSystemTheme());
   const [error, setError] = useState('');
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot): void => {
     setSnapshot(next);
     setThemePreference(next.profile.theme);
+    setIconThemePreference(next.profile.iconTheme);
     setError('');
   }, []);
 
@@ -152,6 +156,8 @@ function WorkspaceApp(): React.JSX.Element {
 
   const active = snapshot.activeConversation;
   const resolvedTheme = themePreference === 'system' ? systemTheme : themePreference;
+  const resolvedIconTheme = iconThemePreference === 'system' ? systemTheme : iconThemePreference;
+  const currentLogoUrl = resolvedIconTheme === 'dark' ? f5LogoDarkUrl : f5LogoUrl;
   const hasLiveTurn = Boolean(
     active &&
     (active.state.activeTurnId ||
@@ -226,6 +232,7 @@ function WorkspaceApp(): React.JSX.Element {
         displayName: snapshot.profile.displayName,
         defaultAgentId: snapshot.profile.defaultAgentId,
         theme: preference,
+        iconTheme: iconThemePreference,
       }),
     );
   }
@@ -244,6 +251,7 @@ function WorkspaceApp(): React.JSX.Element {
           <NavigationRail
             activeView={view}
             displayName={snapshot.profile.displayName}
+            logoUrl={currentLogoUrl}
             onNavigate={setView}
             onUserProfile={() => setView('user-profile')}
           />
@@ -347,6 +355,8 @@ function WorkspaceApp(): React.JSX.Element {
                 onTogglePanel={() => setPanelOpen((value) => !value)}
                 onProfileSave={(input) => void updateSnapshot(f5Api.updateProfile(input))}
                 onThemePreview={setThemePreference}
+                onIconThemePreview={setIconThemePreference}
+                iconPreviewUrl={currentLogoUrl}
               />
             </div>
           </div>
@@ -471,6 +481,7 @@ function TopChrome(props: {
 function NavigationRail(props: {
   activeView: AppView;
   displayName: string;
+  logoUrl: string;
   onNavigate: (view: AppView) => void;
   onUserProfile: () => void;
 }): React.JSX.Element {
@@ -482,7 +493,7 @@ function NavigationRail(props: {
   return (
     <nav className="flex w-[74px] shrink-0 flex-col items-center bg-transparent pb-5 pt-16">
       <div className="liquid-glass-control mb-8 grid size-10 place-items-center rounded-xl border p-1 shadow-sm">
-        <img src={f5LogoUrl} alt="F5" className="size-8 rounded-lg object-cover" />
+        <img src={props.logoUrl} alt="F5" className="size-8 rounded-lg object-cover" />
       </div>
       <div className="flex flex-col gap-2">
         {items.map((item) => (
@@ -755,6 +766,8 @@ function WorkspaceSurface(props: {
   onTogglePanel: () => void;
   onProfileSave: (input: UpdateProfileInput) => void;
   onThemePreview: (theme: ThemePreference) => void;
+  onIconThemePreview: (theme: IconThemePreference) => void;
+  iconPreviewUrl: string;
 }): React.JSX.Element {
   const active = props.active;
   if (props.view === 'user-profile') {
@@ -764,6 +777,8 @@ function WorkspaceSurface(props: {
         onBack={props.onBack}
         onSave={props.onProfileSave}
         onThemePreview={props.onThemePreview}
+        onIconThemePreview={props.onIconThemePreview}
+        iconPreviewUrl={props.iconPreviewUrl}
       />
     );
   }
@@ -1510,21 +1525,27 @@ function UserProfilePage({
   onBack,
   onSave,
   onThemePreview,
+  onIconThemePreview,
+  iconPreviewUrl,
 }: {
   snapshot: WorkspaceSnapshot;
   onBack: () => void;
   onSave: (input: UpdateProfileInput) => void;
   onThemePreview: (theme: ThemePreference) => void;
+  onIconThemePreview: (theme: IconThemePreference) => void;
+  iconPreviewUrl: string;
 }): React.JSX.Element {
   const [displayName, setDisplayName] = useState(snapshot.profile.displayName);
   const [defaultAgentId, setDefaultAgentId] = useState(snapshot.profile.defaultAgentId);
   const [theme, setTheme] = useState(snapshot.profile.theme);
+  const [iconTheme, setIconTheme] = useState(snapshot.profile.iconTheme);
 
-  function saveProfile(nextTheme = theme): void {
+  function saveProfile(nextTheme = theme, nextIconTheme = iconTheme): void {
     onSave({
       displayName: displayName.trim() || snapshot.profile.displayName,
       defaultAgentId,
       theme: nextTheme,
+      iconTheme: nextIconTheme,
     });
   }
 
@@ -1558,7 +1579,7 @@ function UserProfilePage({
             onValueChange={(value: ThemePreference) => {
               setTheme(value);
               onThemePreview(value);
-              saveProfile(value);
+              saveProfile(value, iconTheme);
             }}
           >
             <SelectTrigger>
@@ -1570,6 +1591,34 @@ function UserProfilePage({
               <SelectItem value="system">System</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="grid grid-cols-[160px_1fr] gap-4 rounded-lg border bg-muted/30 p-3 text-sm">
+          <span className="self-center text-muted-foreground">App icon</span>
+          <div className="flex items-center gap-3">
+            <img
+              src={iconPreviewUrl}
+              alt=""
+              aria-hidden="true"
+              className="size-9 shrink-0 rounded-lg border bg-background object-cover shadow-sm"
+            />
+            <Select
+              value={iconTheme}
+              onValueChange={(value: IconThemePreference) => {
+                setIconTheme(value);
+                onIconThemePreview(value);
+                saveProfile(theme, value);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose icon" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="dark">Dark</SelectItem>
+                <SelectItem value="system">System</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="flex gap-2">
           <Button onClick={() => saveProfile()}>Save changes</Button>

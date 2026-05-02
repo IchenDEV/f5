@@ -207,18 +207,24 @@ export class WorkspaceStore {
         defaultAgentId: defaultAgentsFile.defaultAgentId,
         workspacePath: this.workspacePath,
         theme: 'light',
+        iconTheme: 'system',
       };
       await atomicWriteJson(profilePath, profile);
       return profile;
     }
-    const parsed = profileSchema.safeParse(JSON.parse(await readFile(profilePath, 'utf8')));
-    if (parsed.success) return parsed.data;
+    const raw = JSON.parse(await readFile(profilePath, 'utf8'));
+    const parsed = profileSchema.safeParse(raw);
+    if (parsed.success) {
+      if (!('iconTheme' in raw)) await atomicWriteJson(profilePath, parsed.data);
+      return parsed.data;
+    }
     const repaired: UserProfile = {
       schema: 'f5.profile.v1',
       displayName: 'You',
       defaultAgentId: defaultAgentsFile.defaultAgentId,
       workspacePath: this.workspacePath,
       theme: 'light',
+      iconTheme: 'system',
     };
     await atomicWriteJson(profilePath, repaired);
     return repaired;
@@ -255,6 +261,7 @@ export class WorkspaceStore {
       displayName: input.displayName,
       defaultAgentId: nextAgent?.id ?? current.defaultAgentId,
       theme: input.theme,
+      iconTheme: input.iconTheme,
       workspacePath: this.workspacePath,
     };
     const parsed = profileSchema.parse(next);

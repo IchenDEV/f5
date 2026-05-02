@@ -8,6 +8,7 @@ export const fallbackSnapshot: WorkspaceSnapshot = {
     defaultAgentId: 'codex-cli-real',
     workspacePath: 'Loading workspace...',
     theme: 'light',
+    iconTheme: 'system',
   },
   agents: [],
   conversations: [],

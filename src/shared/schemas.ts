@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const conversationIdSchema = z.string().regex(/^conv_[a-f0-9]{24}$/);
 export const messageIdSchema = z.string().regex(/^msg_[a-f0-9]{24}$/);
 export const turnIdSchema = z.string().regex(/^turn_[a-f0-9]{24}$/);
+export const appearancePreferenceSchema = z.enum(['light', 'dark', 'system']);
 
 export const conversationMetaSchema = z.object({
   schema: z.literal('f5.conversation.v1'),
@@ -98,7 +99,8 @@ export const profileSchema = z.object({
   displayName: z.string().min(1),
   defaultAgentId: z.string(),
   workspacePath: z.string(),
-  theme: z.enum(['light', 'dark', 'system']),
+  theme: appearancePreferenceSchema,
+  iconTheme: appearancePreferenceSchema.default('system'),
 });
 
 export const createConversationInputSchema = z.object({
@@ -139,5 +141,6 @@ export const cancelQueuedInputSchema = z.object({
 export const updateProfileInputSchema = z.object({
   displayName: z.string().trim().min(1),
   defaultAgentId: z.string().trim().min(1),
-  theme: z.enum(['light', 'dark', 'system']),
+  theme: appearancePreferenceSchema,
+  iconTheme: appearancePreferenceSchema,
 });

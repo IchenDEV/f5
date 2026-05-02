@@ -106,14 +106,40 @@ describe('WorkspaceStore', () => {
       displayName: 'Local User',
       defaultAgentId: 'codex-cli-real',
       theme: 'dark',
+      iconTheme: 'dark',
     });
     expect(profile.displayName).toBe('Local User');
     expect(profile.theme).toBe('dark');
+    expect(profile.iconTheme).toBe('dark');
 
     const index = await store.rebuildIndex();
     expect(index.conversations.map((conversation) => conversation.title)).toContain(
       'Profile index test',
     );
+  });
+
+  it('adds the icon theme default to older profiles', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-profile-migration-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    await store.ensureWorkspace();
+    const profilePath = join(workspacePath, 'profile.json');
+    await writeFile(
+      profilePath,
+      JSON.stringify({
+        schema: 'f5.profile.v1',
+        displayName: 'Older User',
+        defaultAgentId: 'codex-cli-real',
+        workspacePath,
+        theme: 'dark',
+      }),
+      'utf8',
+    );
+
+    const profile = await store.ensureProfile();
+    expect(profile.iconTheme).toBe('system');
+
+    const persisted = JSON.parse(await readFile(profilePath, 'utf8'));
+    expect(persisted.iconTheme).toBe('system');
   });
 
   it('falls back when the requested active conversation no longer exists', async () => {

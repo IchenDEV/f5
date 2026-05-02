@@ -15,6 +15,7 @@ export type AgentAvailability = 'available' | 'unavailable' | 'disabled';
 export type PlanStepStatus = 'completed' | 'active' | 'pending' | 'failed';
 export type ToolStatus = 'running' | 'queued' | 'completed' | 'failed';
 export type AppView = 'workspace' | 'user-profile' | 'agent-profile' | 'overview' | 'agents';
+export type AppearancePreference = 'light' | 'dark' | 'system';
 
 export interface ConversationMeta {
   schema: 'f5.conversation.v1';
@@ -107,7 +108,8 @@ export interface UserProfile {
   displayName: string;
   defaultAgentId: string;
   workspacePath: string;
-  theme: 'light' | 'dark' | 'system';
+  theme: AppearancePreference;
+  iconTheme: AppearancePreference;
 }
 
 export interface ConversationListItem extends ConversationMeta {
@@ -168,6 +170,7 @@ export interface UpdateProfileInput {
   displayName: string;
   defaultAgentId: string;
   theme: UserProfile['theme'];
+  iconTheme: UserProfile['iconTheme'];
 }
 
 export interface AgentConnectionTestResult {

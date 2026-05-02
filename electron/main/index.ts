@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, shell } from 'electron';
 import { join } from 'node:path';
 import { ConversationEngine } from './conversation-engine';
 import { WorkspaceStore } from './workspace-store';
@@ -14,6 +14,9 @@ const store = new WorkspaceStore(join(app.getPath('userData'), 'workspace'));
 const engine = new ConversationEngine(store);
 let aboutWindow: BrowserWindow | undefined;
 let helpWindow: BrowserWindow | undefined;
+type IconPreference = 'light' | 'dark' | 'system';
+type IconMode = 'light' | 'dark';
+let iconPreference: IconPreference = 'system';
 
 // Defines the macOS menu explicitly so development builds do not expose Electron's default app name.
 function configureApplicationMenu(): void {
@@ -81,18 +84,54 @@ function configureApplicationMenu(): void {
   );
 }
 
-function getAppIconPath(): string | undefined {
-  const iconPath = app.isPackaged
-    ? join(process.resourcesPath, 'icon.png')
-    : join(process.cwd(), 'resources/icon.png');
+function resolveIconMode(preference: IconPreference = iconPreference): IconMode {
+  if (preference === 'system') return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  return preference;
+}
+
+function getIconResourcePath(fileName: string): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, fileName)
+    : join(process.cwd(), 'resources', fileName);
+}
+
+function getAppIconPath(mode: IconMode = resolveIconMode()): string | undefined {
+  const iconPath = getIconResourcePath(mode === 'dark' ? 'icon-dark.png' : 'icon.png');
   return existsSync(iconPath) ? iconPath : undefined;
 }
 
-function getAppIcon(): Electron.NativeImage | undefined {
-  const iconPath = getAppIconPath();
-  if (!iconPath) return undefined;
+function getAppIcon(mode?: IconMode): Electron.NativeImage | undefined {
+  const iconPath = getAppIconPath(mode) ?? getIconResourcePath('icon.png');
+  if (!existsSync(iconPath)) return undefined;
   const icon = nativeImage.createFromPath(iconPath);
   return icon.isEmpty() ? undefined : icon;
+}
+
+function applyAppIcon(): void {
+  const icon = getAppIcon();
+  if (!icon) return;
+  if (process.platform === 'darwin') app.dock?.setIcon(icon);
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.setIcon(icon);
+  }
+  const iconDataUrl = icon.toDataURL();
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    void aboutWindow.loadURL(buildAboutDataUrl(iconDataUrl));
+  }
+  if (helpWindow && !helpWindow.isDestroyed()) {
+    void helpWindow.loadURL(buildHelpDataUrl(iconDataUrl));
+  }
+}
+
+async function initializeAppIconPreference(): Promise<void> {
+  const profile = await store.ensureProfile();
+  iconPreference = profile.iconTheme;
+  applyAppIcon();
+}
+
+function setAppIconPreference(preference: IconPreference): void {
+  iconPreference = preference;
+  applyAppIcon();
 }
 
 // Shows a branded About panel because the native Electron panel keeps Electron.app branding in dev builds.
@@ -302,7 +341,9 @@ ipcMain.handle('conversation:delete', async (_event, input) => {
 });
 
 ipcMain.handle('profile:update', async (_event, input) => {
-  return engine.updateProfile(input);
+  const snapshot = await engine.updateProfile(input);
+  setAppIconPreference(snapshot.profile.iconTheme);
+  return snapshot;
 });
 
 ipcMain.handle('agent:test-connection', async (_event, agentId: string) => {
@@ -380,12 +421,12 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   configureApplicationMenu();
-  const icon = getAppIcon();
-  if (process.platform === 'darwin' && icon) {
-    app.dock?.setIcon(icon);
-  }
+  await initializeAppIconPreference();
+  nativeTheme.on('updated', () => {
+    if (iconPreference === 'system') applyAppIcon();
+  });
   createWindow();
 
   app.on('activate', () => {
