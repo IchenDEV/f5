@@ -97,6 +97,23 @@ for await (const line of lines) {
     expect(cancel.cancelled).toBe(true);
     expect(updates).toContain('session/update');
   });
+
+  it('rejects malformed ACP stdout without crashing the client', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'f5-acp-malformed-fixture-'));
+    const fixturePath = join(dir, 'fixture-acp-malformed.mjs');
+    await writeFile(
+      fixturePath,
+      `
+process.stdout.write('not json\\n');
+setTimeout(() => {}, 1000);
+`,
+      'utf8',
+    );
+    const client = new AcpStdioClient(process.execPath, [fixturePath], dir);
+
+    await expect(client.initialize()).rejects.toThrow(/Invalid ACP JSON/);
+    client.dispose();
+  });
 });
 
 function runtimeWith(options: {

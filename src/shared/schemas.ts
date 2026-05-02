@@ -1,8 +1,12 @@
 import { z } from 'zod';
 
+export const conversationIdSchema = z.string().regex(/^conv_[a-f0-9]{24}$/);
+export const messageIdSchema = z.string().regex(/^msg_[a-f0-9]{24}$/);
+export const turnIdSchema = z.string().regex(/^turn_[a-f0-9]{24}$/);
+
 export const conversationMetaSchema = z.object({
   schema: z.literal('f5.conversation.v1'),
-  id: z.string().startsWith('conv_'),
+  id: conversationIdSchema,
   title: z.string().min(1),
   agentId: z.string().min(1),
   status: z.enum(['active', 'archived', 'needs_repair']),
@@ -15,12 +19,12 @@ export const conversationMetaSchema = z.object({
 
 export const messageMetaSchema = z.object({
   schema: z.literal('f5.message.v1'),
-  id: z.string().startsWith('msg_'),
-  conversationId: z.string().startsWith('conv_'),
+  id: messageIdSchema,
+  conversationId: conversationIdSchema,
   sequence: z.number().int().positive(),
   role: z.enum(['user', 'assistant', 'system', 'tool']),
   agentId: z.string().min(1),
-  turnId: z.string().startsWith('turn_'),
+  turnId: turnIdSchema,
   parentId: z.string(),
   status: z.enum([
     'queued',
@@ -38,8 +42,8 @@ export const messageMetaSchema = z.object({
 });
 
 export const queueItemSchema = z.object({
-  messageId: z.string().startsWith('msg_'),
-  turnId: z.string().startsWith('turn_'),
+  messageId: messageIdSchema,
+  turnId: turnIdSchema,
   status: z.literal('queued'),
   createdAt: z.string().datetime(),
 });
@@ -60,9 +64,9 @@ export const toolActivitySchema = z.object({
 
 export const conversationStateSchema = z.object({
   schema: z.literal('f5.state.v1'),
-  conversationId: z.string().startsWith('conv_'),
+  conversationId: conversationIdSchema,
   acpSessionId: z.string(),
-  activeTurnId: z.string(),
+  activeTurnId: z.union([z.literal(''), turnIdSchema]),
   queue: z.array(queueItemSchema),
   plan: z.array(planStepSchema),
   tools: z.array(toolActivitySchema),
@@ -104,32 +108,32 @@ export const createConversationInputSchema = z.object({
 });
 
 export const sendMessageInputSchema = z.object({
-  conversationId: z.string().startsWith('conv_'),
+  conversationId: conversationIdSchema,
   content: z.string().trim().min(1),
 });
 
 export const renameConversationInputSchema = z.object({
-  conversationId: z.string().startsWith('conv_'),
+  conversationId: conversationIdSchema,
   title: z.string().trim().min(1),
 });
 
 export const starConversationInputSchema = z.object({
-  conversationId: z.string().startsWith('conv_'),
+  conversationId: conversationIdSchema,
   starred: z.boolean(),
 });
 
 export const archiveConversationInputSchema = z.object({
-  conversationId: z.string().startsWith('conv_'),
+  conversationId: conversationIdSchema,
   archived: z.boolean(),
 });
 
 export const deleteConversationInputSchema = z.object({
-  conversationId: z.string().startsWith('conv_'),
+  conversationId: conversationIdSchema,
 });
 
 export const cancelQueuedInputSchema = z.object({
-  conversationId: z.string().startsWith('conv_'),
-  messageId: z.string().startsWith('msg_'),
+  conversationId: conversationIdSchema,
+  messageId: messageIdSchema,
 });
 
 export const updateProfileInputSchema = z.object({

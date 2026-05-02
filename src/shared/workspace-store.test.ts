@@ -6,10 +6,16 @@ import { describe, expect, it } from 'vitest';
 import { ConversationEngine } from '../../electron/main/conversation-engine';
 import {
   defaultAgentsFile,
+  makeLocalId,
   messageFileName,
   WorkspaceStore,
 } from '../../electron/main/workspace-store';
-import { conversationMetaSchema, messageMetaSchema } from './schemas';
+import {
+  conversationMetaSchema,
+  deleteConversationInputSchema,
+  messageMetaSchema,
+  sendMessageInputSchema,
+} from './schemas';
 
 describe('WorkspaceStore', () => {
   it('creates, persists, indexes, and reloads markdown conversations', async () => {
@@ -62,6 +68,20 @@ describe('WorkspaceStore', () => {
     expect(index.conversations[0].messageCount).toBe(2);
   });
 
+  it('rejects path-like local ids before filesystem operations', async () => {
+    expect(() =>
+      sendMessageInputSchema.parse({
+        conversationId: 'conv_../../outside',
+        content: 'do not leave the workspace',
+      }),
+    ).toThrow();
+    expect(() =>
+      deleteConversationInputSchema.parse({
+        conversationId: 'conv_../../outside',
+      }),
+    ).toThrow();
+  });
+
   it('repairs invalid conversation frontmatter in the list without hiding other conversations', async () => {
     const workspacePath = await mkdtemp(join(tmpdir(), 'f5-invalid-frontmatter-test-'));
     const store = new WorkspaceStore(workspacePath);
@@ -94,6 +114,16 @@ describe('WorkspaceStore', () => {
     expect(index.conversations.map((conversation) => conversation.title)).toContain(
       'Profile index test',
     );
+  });
+
+  it('falls back when the requested active conversation no longer exists', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-stale-active-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const existing = await store.createConversation({ title: 'Still here' });
+
+    const snapshot = await store.getSnapshot('conv_000000000000000000000000');
+
+    expect(snapshot.activeConversation?.conversation.id).toBe(existing.conversation.id);
   });
 
   it('migrates deprecated Codex CLI approval arguments from persisted agent config', async () => {
@@ -203,6 +233,33 @@ describe('WorkspaceStore', () => {
     ]);
   });
 
+  it('preserves user-written conversation markdown body when metadata changes', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-meta-body-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const conversation = await store.createConversation({ title: 'Body should stay' });
+    const conversationPath = join(
+      workspacePath,
+      'conversations',
+      conversation.conversation.id,
+      'conversation.md',
+    );
+    const customBody = '# Body should stay\n\nUser note that belongs in this conversation file.\n';
+    await writeFile(
+      conversationPath,
+      matter.stringify(customBody, conversation.conversation),
+      'utf8',
+    );
+
+    await store.starConversation({
+      conversationId: conversation.conversation.id,
+      starred: true,
+    });
+
+    const raw = matter(await readFile(conversationPath, 'utf8'));
+    expect(raw.content).toContain('User note that belongs in this conversation file.');
+    expect(raw.data.starred).toBe(true);
+  });
+
   it('records unavailable ACP turns honestly', async () => {
     const workspacePath = await mkdtemp(join(tmpdir(), 'f5-engine-test-'));
     const store = new WorkspaceStore(workspacePath);
@@ -230,7 +287,7 @@ describe('WorkspaceStore', () => {
     expect(conversationId).toBeTruthy();
 
     const state = await store.readState(conversationId!);
-    state.activeTurnId = 'turn_external_active';
+    state.activeTurnId = makeLocalId('turn');
     await store.writeState(state);
     const queued = await engine.sendMessage({
       conversationId: conversationId!,
@@ -310,4 +367,135 @@ describe('WorkspaceStore', () => {
     expect(generatedPrompt).toContain('## Latest user message');
     expect(generatedPrompt).toContain('then?');
   });
+
+  it('streams Codex CLI JSONL updates into the assistant message before completion', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-codex-stream-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    await store.ensureWorkspace();
+    const streamScript = join(workspacePath, 'stream-codex.cjs');
+    await writeFile(
+      streamScript,
+      [
+        "const fs = require('node:fs');",
+        "const outputIndex = process.argv.indexOf('--output-last-message');",
+        'const outputPath = process.argv[outputIndex + 1];',
+        "setTimeout(() => process.stdout.write(JSON.stringify({ type: 'agent_message_delta', delta: 'stream ' }) + '\\n'), 20);",
+        "setTimeout(() => process.stdout.write(JSON.stringify({ type: 'agent_message_delta', delta: 'works' }) + '\\n'), 60);",
+        "setTimeout(() => { fs.writeFileSync(outputPath, 'stream works final', 'utf8'); process.exit(0); }, 220);",
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(workspacePath, 'agents', 'agents.json'),
+      JSON.stringify({
+        schema: 'f5.agents.v1',
+        defaultAgentId: 'stream-codex',
+        agents: [
+          {
+            id: 'stream-codex',
+            name: 'Stream Codex',
+            kind: 'codex-cli',
+            command: process.execPath,
+            args: [streamScript],
+            cwd: workspacePath,
+            enabled: true,
+            availability: 'available',
+            protocolVersion: 'Codex CLI',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const engine = new ConversationEngine(store);
+    const snapshot = await engine.createConversation({
+      title: 'Stream test',
+      agentId: 'stream-codex',
+    });
+    const conversationId = snapshot.activeConversation?.conversation.id;
+    expect(conversationId).toBeTruthy();
+    await engine.sendMessage({ conversationId: conversationId!, content: 'stream please' });
+
+    const streamed = await waitForMessageBody(store, conversationId!, 'stream works');
+    expect(streamed.meta.status).toBe('streaming');
+    const idle = await engine.waitForIdle(conversationId!);
+    expect(idle.messages.at(-1)?.body).toBe('stream works final');
+  });
+
+  it('cancels an active Codex CLI process without allowing a stale completed reply', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-codex-cancel-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    await store.ensureWorkspace();
+    const slowScript = join(workspacePath, 'slow-codex.cjs');
+    await writeFile(
+      slowScript,
+      [
+        "const fs = require('node:fs');",
+        "const outputIndex = process.argv.indexOf('--output-last-message');",
+        'const outputPath = process.argv[outputIndex + 1];',
+        "setTimeout(() => process.stdout.write(JSON.stringify({ type: 'agent_message_delta', delta: 'still running' }) + '\\n'), 20);",
+        "setTimeout(() => { fs.writeFileSync(outputPath, 'stale completed body', 'utf8'); process.exit(0); }, 500);",
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(workspacePath, 'agents', 'agents.json'),
+      JSON.stringify({
+        schema: 'f5.agents.v1',
+        defaultAgentId: 'slow-codex',
+        agents: [
+          {
+            id: 'slow-codex',
+            name: 'Slow Codex',
+            kind: 'codex-cli',
+            command: process.execPath,
+            args: [slowScript],
+            cwd: workspacePath,
+            enabled: true,
+            availability: 'available',
+            protocolVersion: 'Codex CLI',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const engine = new ConversationEngine(store);
+    const snapshot = await engine.createConversation({
+      title: 'Cancel test',
+      agentId: 'slow-codex',
+    });
+    const conversationId = snapshot.activeConversation?.conversation.id;
+    expect(conversationId).toBeTruthy();
+    await engine.sendMessage({ conversationId: conversationId!, content: 'cancel please' });
+    await waitForMessageBody(store, conversationId!, 'still running');
+
+    await engine.cancelActive(conversationId!);
+    await sleep(650);
+
+    const open = await store.openConversation(conversationId!);
+    const assistant = open.messages.find((message) => message.meta.role === 'assistant');
+    expect(assistant?.meta.status).toBe('cancelled');
+    expect(assistant?.body).not.toContain('stale completed body');
+    expect(open.state.activeTurnId).toBe('');
+  });
 });
+
+async function waitForMessageBody(
+  store: WorkspaceStore,
+  conversationId: string,
+  text: string,
+): Promise<Awaited<ReturnType<WorkspaceStore['readMessages']>>[number]> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 1200) {
+    const messages = await store.readMessages(conversationId);
+    const match = messages.find((message) => message.body.includes(text));
+    if (match) return match;
+    await sleep(20);
+  }
+  throw new Error(`Timed out waiting for message body containing ${text}`);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

@@ -1,13 +1,24 @@
 import matter from 'gray-matter';
 import { constants } from 'node:fs';
-import { access, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   agentConfigSchema,
   agentsFileSchema,
+  conversationIdSchema,
   conversationMetaSchema,
   conversationStateSchema,
+  deleteConversationInputSchema,
   messageMetaSchema,
   profileSchema,
 } from '../../src/shared/schemas';
@@ -86,7 +97,13 @@ export function nowIso(): string {
 }
 
 export function conversationDir(workspacePath: string, conversationId: string): string {
-  return join(workspacePath, 'conversations', conversationId);
+  const parsed = conversationIdSchema.parse(conversationId);
+  const root = resolve(workspacePath, 'conversations');
+  const target = resolve(root, parsed);
+  if (target !== root && !target.startsWith(`${root}${sep}`)) {
+    throw new Error(`Conversation path escapes workspace: ${conversationId}`);
+  }
+  return target;
 }
 
 export function messageFileName(sequence: number, role: string, messageId: string): string {
@@ -103,7 +120,7 @@ export async function pathExists(path: string): Promise<boolean> {
 }
 
 export async function atomicWriteFile(path: string, content: string): Promise<void> {
-  await mkdir(join(path, '..'), { recursive: true });
+  await mkdir(dirname(path), { recursive: true });
   const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
   await writeFile(tempPath, content, 'utf8');
   await rename(tempPath, path);
@@ -288,11 +305,21 @@ export class WorkspaceStore {
 
   async writeConversationMeta(meta: ConversationMeta): Promise<void> {
     const parsed = conversationMetaSchema.parse(meta);
-    const body = `# ${parsed.title}\n\nConversation ${parsed.id} with ${parsed.agentId}.\n`;
-    await atomicWriteFile(
-      join(conversationDir(this.workspacePath, parsed.id), 'conversation.md'),
-      markdownWithFrontmatter(parsed, body),
-    );
+    const path = join(conversationDir(this.workspacePath, parsed.id), 'conversation.md');
+    const body = await this.nextConversationBody(path, parsed);
+    await atomicWriteFile(path, markdownWithFrontmatter(parsed, body));
+  }
+
+  private async nextConversationBody(path: string, nextMeta: ConversationMeta): Promise<string> {
+    if (!(await pathExists(path))) return defaultConversationBody(nextMeta);
+    const existing = matter(await readFile(path, 'utf8'));
+    const previousMeta = conversationMetaSchema.safeParse(existing.data);
+    const trimmed = existing.content.trimEnd();
+    if (!trimmed) return defaultConversationBody(nextMeta);
+    if (previousMeta.success && trimmed === defaultConversationBody(previousMeta.data).trimEnd()) {
+      return defaultConversationBody(nextMeta);
+    }
+    return `${trimmed}\n`;
   }
 
   async readConversationMeta(conversationId: string): Promise<ConversationMeta> {
@@ -391,14 +418,37 @@ export class WorkspaceStore {
   async getSnapshot(activeConversationId?: string): Promise<WorkspaceSnapshot> {
     await this.ensureWorkspace();
     const conversations = await this.listConversations();
-    const activeId = activeConversationId ?? conversations[0]?.id;
+    const activeConversation = await this.resolveActiveConversation(
+      activeConversationId,
+      conversations,
+    );
     return {
       workspacePath: this.workspacePath,
       profile: await this.ensureProfile(),
       agents: await this.loadAgents(),
       conversations,
-      activeConversation: activeId ? await this.openConversation(activeId) : undefined,
+      activeConversation,
     };
+  }
+
+  private async resolveActiveConversation(
+    activeConversationId: string | undefined,
+    conversations: ConversationListItem[],
+  ): Promise<OpenConversation | undefined> {
+    const candidates = [
+      activeConversationId,
+      ...conversations
+        .filter((conversation) => conversation.status !== 'needs_repair')
+        .map((conversation) => conversation.id),
+    ].filter((id): id is string => Boolean(id));
+    for (const candidate of [...new Set(candidates)]) {
+      try {
+        return await this.openConversation(candidate);
+      } catch {
+        // A stale renderer id or corrupted folder should not block workspace startup.
+      }
+    }
+    return undefined;
   }
 
   async openConversation(conversationId: string): Promise<OpenConversation> {
@@ -512,7 +562,10 @@ export class WorkspaceStore {
   }
 
   async deleteConversation(input: DeleteConversationInput): Promise<void> {
-    await rm(conversationDir(this.workspacePath, input.conversationId), {
+    const parsed = deleteConversationInputSchema.parse(input);
+    const dir = conversationDir(this.workspacePath, parsed.conversationId);
+    await ensureRealPathInside(resolve(this.workspacePath, 'conversations'), dir);
+    await rm(dir, {
       force: true,
       recursive: true,
     });
@@ -557,6 +610,25 @@ export class WorkspaceStore {
     meta.updatedAt = timestamp;
     await this.writeConversationMeta(meta);
     await this.rebuildIndex();
+  }
+}
+
+function defaultConversationBody(meta: ConversationMeta): string {
+  return `# ${meta.title}\n\nConversation ${meta.id} with ${meta.agentId}.\n`;
+}
+
+async function ensureRealPathInside(root: string, target: string): Promise<void> {
+  await mkdir(root, { recursive: true });
+  const rootReal = await realpath(root);
+  let targetReal: string;
+  try {
+    targetReal = await realpath(target);
+  } catch {
+    const parentReal = await realpath(dirname(target));
+    targetReal = resolve(parentReal, basename(target));
+  }
+  if (targetReal !== rootReal && !targetReal.startsWith(`${rootReal}${sep}`)) {
+    throw new Error(`Path escapes workspace: ${target}`);
   }
 }
 

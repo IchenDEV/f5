@@ -43,9 +43,11 @@ export class AcpStdioClient {
     this.child = spawn(this.command, this.args, { cwd: this.cwd, env: this.env });
     const lines = createInterface({ input: this.child.stdout, crlfDelay: Infinity });
     lines.on('line', (line) => this.handleLine(line));
+    this.child.stderr.on('data', () => {
+      // Drain stderr so an adapter cannot block when it logs heavily.
+    });
     this.child.on('exit', () => {
-      for (const pending of this.pending.values()) pending.reject(new Error('ACP process exited'));
-      this.pending.clear();
+      this.rejectPending(new Error('ACP process exited'));
       this.child = undefined;
     });
   }
@@ -60,7 +62,6 @@ export class AcpStdioClient {
     if (!this.child) return Promise.reject(new Error('ACP process did not start'));
     const id = ++this.requestId;
     const request: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
-    this.child.stdin.write(`${JSON.stringify(request)}\n`);
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
@@ -76,6 +77,7 @@ export class AcpStdioClient {
           reject(error);
         },
       });
+      this.child!.stdin.write(`${JSON.stringify(request)}\n`);
     });
   }
 
@@ -101,13 +103,21 @@ export class AcpStdioClient {
   }
 
   dispose(): void {
+    this.rejectPending(new Error('ACP client disposed'));
     this.child?.kill();
     this.child = undefined;
   }
 
   private handleLine(line: string): void {
     if (!line.trim()) return;
-    const message = JSON.parse(line) as JsonRpcResponse;
+    let message: JsonRpcResponse;
+    try {
+      message = JSON.parse(line) as JsonRpcResponse;
+    } catch {
+      this.rejectPending(new Error(`Invalid ACP JSON: ${line}`));
+      this.dispose();
+      return;
+    }
     if (message.id && this.pending.has(message.id)) {
       const pending = this.pending.get(message.id)!;
       this.pending.delete(message.id);
@@ -119,5 +129,10 @@ export class AcpStdioClient {
       for (const callback of this.updates)
         callback({ method: message.method, params: message.params });
     }
+  }
+
+  private rejectPending(error: Error): void {
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
   }
 }
