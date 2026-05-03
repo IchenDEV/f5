@@ -492,8 +492,8 @@ function NavigationRail(props: {
   ];
   return (
     <nav className="flex w-[74px] shrink-0 flex-col items-center bg-transparent pb-5 pt-16">
-      <div className="liquid-glass-control mb-8 grid size-10 place-items-center rounded-xl border p-1 shadow-sm">
-        <img src={props.logoUrl} alt="F5" className="size-8 rounded-lg object-cover" />
+      <div className="mb-8 grid size-10 place-items-center">
+        <img src={props.logoUrl} alt="F5" className="size-10 rounded-xl object-cover" />
       </div>
       <div className="flex flex-col gap-2">
         {items.map((item) => (
