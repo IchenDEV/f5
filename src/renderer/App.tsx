@@ -68,8 +68,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import f5LogoDarkUrl from '@/assets/f5-logo-dark.png';
-import f5LogoUrl from '@/assets/f5-logo.png';
+import f5LogoDarkUrl from '../../resources/icon-dark.png';
+import f5LogoUrl from '../../resources/icon.png';
 import { fallbackSnapshot } from '@/data/fallback';
 import { f5Api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -491,9 +491,9 @@ function NavigationRail(props: {
     { label: 'Agents', icon: Bot, view: 'agents' as const },
   ];
   return (
-    <nav className="flex w-[74px] shrink-0 flex-col items-center bg-transparent pb-5 pt-16">
-      <div className="liquid-glass-control mb-8 grid size-10 place-items-center rounded-xl border p-1 shadow-sm">
-        <img src={props.logoUrl} alt="F5" className="size-8 rounded-lg object-cover" />
+    <nav className="flex w-[74px] shrink-0 flex-col items-center bg-transparent pb-5 pt-[60px]">
+      <div className="mb-8 grid size-10 place-items-center overflow-hidden rounded-[14px]">
+        <img src={props.logoUrl} alt="F5" className="size-10 rounded-[14px] object-cover" />
       </div>
       <div className="flex flex-col gap-2">
         {items.map((item) => (
@@ -515,12 +515,20 @@ function NavigationRail(props: {
   );
 }
 
-function userInitials(displayName: string): string {
-  const name = displayName.trim();
-  if (!name) return 'U';
+function initialsFromName(value: string, fallback: string): string {
+  const name = value.trim();
+  if (!name) return fallback;
   const parts = name.split(/\s+/);
   if (parts.length > 1) return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
   return Array.from(name).slice(0, 2).join('').toUpperCase();
+}
+
+function userInitials(displayName: string): string {
+  return initialsFromName(displayName, 'U');
+}
+
+function agentInitials(agentName: string): string {
+  return initialsFromName(agentName, 'AI');
 }
 
 function UserAvatar({
@@ -534,6 +542,22 @@ function UserAvatar({
     <Avatar className={className}>
       <AvatarFallback className="bg-background/80 text-foreground">
         {userInitials(displayName)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+function AgentAvatar({
+  agentName,
+  className,
+}: {
+  agentName: string;
+  className?: string;
+}): React.JSX.Element {
+  return (
+    <Avatar className={className}>
+      <AvatarFallback className="bg-emerald-100 text-emerald-700">
+        {agentInitials(agentName)}
       </AvatarFallback>
     </Avatar>
   );
@@ -623,7 +647,7 @@ function NewConversationButton(props: {
 }): React.JSX.Element {
   const primaryAgent = props.agents.find((agent) => agent.id === props.primaryAgentId);
   return (
-    <div className="flex overflow-hidden rounded-lg border bg-primary text-primary-foreground shadow-sm">
+    <div className="flex overflow-hidden rounded-lg bg-primary text-primary-foreground shadow-sm">
       <Button
         className="rounded-none border-0 bg-transparent text-primary-foreground hover:bg-primary/90"
         size="sm"
@@ -635,7 +659,7 @@ function NewConversationButton(props: {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            className="rounded-none border-l border-primary-foreground/20 bg-transparent px-2 text-primary-foreground hover:bg-primary/90"
+            className="rounded-none border-0 bg-transparent px-2 text-primary-foreground hover:bg-primary/90 aria-expanded:bg-primary/90"
             size="sm"
             aria-label="New conversation options"
           >
@@ -998,9 +1022,7 @@ function AgentMessage({
 }): React.JSX.Element {
   return (
     <div className="flex gap-4">
-      <Avatar className="size-10">
-        <AvatarFallback className="bg-emerald-100 text-emerald-700">MA</AvatarFallback>
-      </Avatar>
+      <AgentAvatar agentName={active.agent.name} className="size-10" />
       <div className="min-w-0 flex-1">
         <div className="mb-2 flex items-center gap-2">
           <span className="font-medium">{active.agent.name}</span>
@@ -1183,9 +1205,7 @@ function AgentProgressPanel({
               <IconButton label="Close agent panel" icon={X} onClick={onClose} />
             </div>
             <div className="flex items-start gap-3">
-              <Avatar className="size-12">
-                <AvatarFallback className="bg-emerald-100 text-emerald-700">MA</AvatarFallback>
-              </Avatar>
+              <AgentAvatar agentName={active.agent.name} className="size-12" />
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{active.agent.name}</div>
                 <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
@@ -1485,9 +1505,7 @@ function AgentsPage({
           return (
             <div key={agent.id} className="rounded-lg border bg-muted/30 p-4 text-sm">
               <div className="flex items-start gap-3">
-                <Avatar className="size-10">
-                  <AvatarFallback>{agent.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                </Avatar>
+                <AgentAvatar agentName={agent.name} className="size-10" />
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{agent.name}</div>
                   <div className="mt-1 flex items-center gap-2 text-muted-foreground">
@@ -1694,7 +1712,7 @@ function ProfileShell({
 }): React.JSX.Element {
   return (
     <section className="flex h-full min-h-0 justify-center overflow-hidden">
-      <Card className="liquid-float-card h-full w-full max-w-[1440px] overflow-hidden border">
+      <Card className="liquid-float-card h-full w-full max-w-[1440px] overflow-hidden rounded-2xl border ring-0">
         <CardHeader>
           <CardTitle>{title}</CardTitle>
           <CardDescription>Local workspace settings and connection details.</CardDescription>
