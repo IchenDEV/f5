@@ -647,7 +647,7 @@ function NewConversationButton(props: {
 }): React.JSX.Element {
   const primaryAgent = props.agents.find((agent) => agent.id === props.primaryAgentId);
   return (
-    <div className="flex overflow-hidden rounded-lg border bg-primary text-primary-foreground shadow-sm">
+    <div className="flex overflow-hidden rounded-lg bg-primary text-primary-foreground shadow-sm">
       <Button
         className="rounded-none border-0 bg-transparent text-primary-foreground hover:bg-primary/90"
         size="sm"
@@ -659,7 +659,7 @@ function NewConversationButton(props: {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            className="rounded-none border-l border-primary-foreground/20 bg-transparent px-2 text-primary-foreground hover:bg-primary/90"
+            className="rounded-none border-0 bg-transparent px-2 text-primary-foreground hover:bg-primary/90 aria-expanded:bg-primary/90"
             size="sm"
             aria-label="New conversation options"
           >
