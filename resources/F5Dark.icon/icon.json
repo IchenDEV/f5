@@ -1,0 +1,27 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-srgb:0.14902,0.15294,0.17255,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "mark-dark.png",
+          "name": "F5 Mark"
+        }
+      ],
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": ["watchOS"],
+    "squares": "shared"
+  }
+}
