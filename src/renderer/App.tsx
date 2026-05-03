@@ -515,12 +515,20 @@ function NavigationRail(props: {
   );
 }
 
-function userInitials(displayName: string): string {
-  const name = displayName.trim();
-  if (!name) return 'U';
+function initialsFromName(value: string, fallback: string): string {
+  const name = value.trim();
+  if (!name) return fallback;
   const parts = name.split(/\s+/);
   if (parts.length > 1) return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
   return Array.from(name).slice(0, 2).join('').toUpperCase();
+}
+
+function userInitials(displayName: string): string {
+  return initialsFromName(displayName, 'U');
+}
+
+function agentInitials(agentName: string): string {
+  return initialsFromName(agentName, 'AI');
 }
 
 function UserAvatar({
@@ -534,6 +542,22 @@ function UserAvatar({
     <Avatar className={className}>
       <AvatarFallback className="bg-background/80 text-foreground">
         {userInitials(displayName)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+function AgentAvatar({
+  agentName,
+  className,
+}: {
+  agentName: string;
+  className?: string;
+}): React.JSX.Element {
+  return (
+    <Avatar className={className}>
+      <AvatarFallback className="bg-emerald-100 text-emerald-700">
+        {agentInitials(agentName)}
       </AvatarFallback>
     </Avatar>
   );
@@ -998,9 +1022,7 @@ function AgentMessage({
 }): React.JSX.Element {
   return (
     <div className="flex gap-4">
-      <Avatar className="size-10">
-        <AvatarFallback className="bg-emerald-100 text-emerald-700">MA</AvatarFallback>
-      </Avatar>
+      <AgentAvatar agentName={active.agent.name} className="size-10" />
       <div className="min-w-0 flex-1">
         <div className="mb-2 flex items-center gap-2">
           <span className="font-medium">{active.agent.name}</span>
@@ -1183,9 +1205,7 @@ function AgentProgressPanel({
               <IconButton label="Close agent panel" icon={X} onClick={onClose} />
             </div>
             <div className="flex items-start gap-3">
-              <Avatar className="size-12">
-                <AvatarFallback className="bg-emerald-100 text-emerald-700">MA</AvatarFallback>
-              </Avatar>
+              <AgentAvatar agentName={active.agent.name} className="size-12" />
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{active.agent.name}</div>
                 <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
@@ -1485,9 +1505,7 @@ function AgentsPage({
           return (
             <div key={agent.id} className="rounded-lg border bg-muted/30 p-4 text-sm">
               <div className="flex items-start gap-3">
-                <Avatar className="size-10">
-                  <AvatarFallback>{agent.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                </Avatar>
+                <AgentAvatar agentName={agent.name} className="size-10" />
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{agent.name}</div>
                   <div className="mt-1 flex items-center gap-2 text-muted-foreground">
