@@ -68,8 +68,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import f5LogoDarkUrl from '@/assets/f5-logo-dark.png';
-import f5LogoUrl from '@/assets/f5-logo.png';
+import f5LogoDarkUrl from '../../resources/icon-dark.png';
+import f5LogoUrl from '../../resources/icon.png';
 import { fallbackSnapshot } from '@/data/fallback';
 import { f5Api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -491,9 +491,9 @@ function NavigationRail(props: {
     { label: 'Agents', icon: Bot, view: 'agents' as const },
   ];
   return (
-    <nav className="flex w-[74px] shrink-0 flex-col items-center bg-transparent pb-5 pt-16">
-      <div className="mb-8 grid size-10 place-items-center">
-        <img src={props.logoUrl} alt="F5" className="size-10 rounded-xl object-cover" />
+    <nav className="flex w-[74px] shrink-0 flex-col items-center bg-transparent pb-5 pt-[60px]">
+      <div className="mb-8 grid size-10 place-items-center overflow-hidden rounded-[14px]">
+        <img src={props.logoUrl} alt="F5" className="size-10 rounded-[14px] object-cover" />
       </div>
       <div className="flex flex-col gap-2">
         {items.map((item) => (
@@ -1712,7 +1712,7 @@ function ProfileShell({
 }): React.JSX.Element {
   return (
     <section className="flex h-full min-h-0 justify-center overflow-hidden">
-      <Card className="liquid-float-card h-full w-full max-w-[1440px] overflow-hidden border">
+      <Card className="liquid-float-card h-full w-full max-w-[1440px] overflow-hidden rounded-2xl border ring-0">
         <CardHeader>
           <CardTitle>{title}</CardTitle>
           <CardDescription>Local workspace settings and connection details.</CardDescription>
