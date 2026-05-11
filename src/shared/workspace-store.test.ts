@@ -2,7 +2,7 @@ import matter from 'gray-matter';
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ConversationEngine } from '../../electron/main/conversation-engine';
 import {
   defaultAgentsFile,
@@ -13,8 +13,17 @@ import {
 import {
   conversationMetaSchema,
   deleteConversationInputSchema,
+  deleteDocumentInputSchema,
+  deleteTaskListInputSchema,
+  deleteTaskInputSchema,
+  documentIndexSchema,
+  documentRecordSchema,
   messageMetaSchema,
   sendMessageInputSchema,
+  taskIndexSchema,
+  taskListIndexSchema,
+  taskListRecordSchema,
+  taskRecordSchema,
 } from './schemas';
 
 describe('WorkspaceStore', () => {
@@ -80,6 +89,21 @@ describe('WorkspaceStore', () => {
         conversationId: 'conv_../../outside',
       }),
     ).toThrow();
+    expect(() =>
+      deleteTaskInputSchema.parse({
+        taskId: 'task_../../outside',
+      }),
+    ).toThrow();
+    expect(() =>
+      deleteTaskListInputSchema.parse({
+        taskListId: 'tasklist_../../outside',
+      }),
+    ).toThrow();
+    expect(() =>
+      deleteDocumentInputSchema.parse({
+        documentId: 'doc_../../outside',
+      }),
+    ).toThrow();
   });
 
   it('repairs invalid conversation frontmatter in the list without hiding other conversations', async () => {
@@ -116,6 +140,167 @@ describe('WorkspaceStore', () => {
     expect(index.conversations.map((conversation) => conversation.title)).toContain(
       'Profile index test',
     );
+  });
+
+  it('creates, updates, indexes, reloads, and deletes workspace TODO markdown files', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-task-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const task = await store.createTask({
+      title: 'Write implementation plan',
+      body: 'Cover storage and UI.',
+      agentId: 'codex-acp-real',
+    });
+    const updated = await store.updateTask({
+      taskId: task.id,
+      title: 'Write implementation plan and tests',
+      body: 'Cover storage, UI, and smoke.',
+      status: 'done',
+      agentId: 'claude-code',
+    });
+
+    expect(updated.status).toBe('done');
+    expect(updated.completedAt).toBeTruthy();
+    expect(updated.agentId).toBe('claude-code');
+
+    const taskPath = join(workspacePath, 'tasks', `${task.id}.md`);
+    const rawTask = matter(await readFile(taskPath, 'utf8'));
+    taskRecordSchema.parse({ ...rawTask.data, body: rawTask.content.trimEnd() });
+    expect(rawTask.data.agentId).toBe('claude-code');
+    expect(rawTask.content).toContain('Cover storage, UI, and smoke.');
+
+    const taskIndex = taskIndexSchema.parse(
+      JSON.parse(await readFile(join(workspacePath, 'tasks', 'index.json'), 'utf8')),
+    );
+    expect(taskIndex.tasks.map((item) => item.title)).toContain(
+      'Write implementation plan and tests',
+    );
+    expect(taskIndex.tasks.find((item) => item.id === task.id)?.agentId).toBe('claude-code');
+
+    const restarted = new WorkspaceStore(workspacePath);
+    await restarted.ensureWorkspace();
+    expect(await restarted.readTask(task.id)).toMatchObject({
+      status: 'done',
+      agentId: 'claude-code',
+    });
+
+    await restarted.deleteTask({ taskId: task.id });
+    expect(await restarted.listTasks()).toHaveLength(0);
+  });
+
+  it('creates multiple TODO lists, indexes counts, and persists task membership', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-task-list-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const personal = await store.createTaskList({ title: 'Personal' });
+    const launch = await store.createTaskList({ title: 'Launch' });
+    const personalTask = await store.createTask({
+      taskListId: personal.id,
+      title: 'Buy keyboard',
+      body: 'Low profile.',
+    });
+    await store.createTask({
+      taskListId: launch.id,
+      title: 'Ship release notes',
+    });
+    await store.updateTask({
+      taskId: personalTask.id,
+      title: 'Buy keyboard',
+      body: 'Low profile.',
+      status: 'done',
+    });
+
+    const lists = await store.listTaskLists();
+    expect(lists.find((list) => list.id === personal.id)).toMatchObject({
+      title: 'Personal',
+      taskCount: 1,
+      openCount: 0,
+    });
+    expect(lists.find((list) => list.id === launch.id)).toMatchObject({
+      title: 'Launch',
+      taskCount: 1,
+      openCount: 1,
+    });
+
+    const taskRaw = matter(
+      await readFile(join(workspacePath, 'tasks', `${personalTask.id}.md`), 'utf8'),
+    );
+    taskRecordSchema.parse({ ...taskRaw.data, body: taskRaw.content.trimEnd() });
+    expect(taskRaw.data.listId).toBe(personal.id);
+
+    const listRaw = matter(
+      await readFile(join(workspacePath, 'tasks', 'lists', `${personal.id}.md`), 'utf8'),
+    );
+    taskListRecordSchema.parse(listRaw.data);
+
+    const listIndex = taskListIndexSchema.parse(
+      JSON.parse(await readFile(join(workspacePath, 'tasks', 'lists', 'index.json'), 'utf8')),
+    );
+    expect(listIndex.lists.map((list) => list.title)).toContain('Launch');
+
+    const snapshot = await store.getSnapshot();
+    expect(snapshot.taskLists.map((list) => list.title)).toEqual(
+      expect.arrayContaining(['Personal', 'Launch']),
+    );
+
+    await store.deleteTaskList({ taskListId: launch.id });
+    expect((await store.listTaskLists()).map((list) => list.title)).not.toContain('Launch');
+    expect((await store.listTasks()).some((item) => item.listId === launch.id)).toBe(false);
+  });
+
+  it('creates, updates, indexes, reloads, and deletes workspace Markdown documents', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-document-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const document = await store.createDocument({
+      title: 'Project notes',
+      body: '# Project notes\n\nInitial notes.',
+    });
+    const updated = await store.updateDocument({
+      documentId: document.id,
+      title: 'Project notes v2',
+      body: '# Project notes v2\n\nSaved Markdown.',
+    });
+
+    expect(updated.title).toBe('Project notes v2');
+    const documentPath = join(workspacePath, 'documents', `${document.id}.md`);
+    const rawDocument = matter(await readFile(documentPath, 'utf8'));
+    documentRecordSchema.parse({ ...rawDocument.data, body: rawDocument.content.trimEnd() });
+    expect(rawDocument.content).toContain('Saved Markdown.');
+
+    const documentIndex = documentIndexSchema.parse(
+      JSON.parse(await readFile(join(workspacePath, 'documents', 'index.json'), 'utf8')),
+    );
+    expect(documentIndex.documents.map((item) => item.title)).toContain('Project notes v2');
+
+    const restarted = new WorkspaceStore(workspacePath);
+    await restarted.ensureWorkspace();
+    expect((await restarted.readDocument(document.id)).body).toContain('Saved Markdown.');
+
+    await restarted.deleteDocument({ documentId: document.id });
+    expect(await restarted.listDocuments()).toHaveLength(0);
+  });
+
+  it('marks invalid TODO and document frontmatter as needing repair', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-resource-repair-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const task = await store.createTask({ title: 'Repair task' });
+    const document = await store.createDocument({ title: 'Repair document' });
+
+    await writeFile(
+      join(workspacePath, 'tasks', `${task.id}.md`),
+      '---\nschema: wrong\n---\n',
+      'utf8',
+    );
+    await writeFile(
+      join(workspacePath, 'documents', `${document.id}.md`),
+      '---\nschema: wrong\n---\n',
+      'utf8',
+    );
+
+    expect((await store.listTasks()).find((item) => item.id === task.id)?.repairStatus).toBe(
+      'needs_repair',
+    );
+    expect(
+      (await store.listDocuments()).find((item) => item.id === document.id)?.repairStatus,
+    ).toBe('needs_repair');
   });
 
   it('adds the icon theme default to older profiles', async () => {
@@ -302,6 +487,172 @@ describe('WorkspaceStore', () => {
     const idle = await engine.waitForIdle(conversationId!);
     expect(idle.messages.filter((message) => message.meta.status === 'failed')).toHaveLength(1);
     expect(idle.state.queue).toHaveLength(0);
+  });
+
+  it('emits snapshots for engine-managed workspace TODO and document operations', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-engine-resource-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const engine = new ConversationEngine(store);
+    const send = vi.fn();
+    engine.addWindow({
+      on: vi.fn(),
+      isDestroyed: () => false,
+      webContents: { send },
+    } as never);
+
+    await engine.initialize();
+    const createdTask = await engine.createTask({ title: 'Engine task', body: 'Engine notes' });
+    const taskId = createdTask.tasks[0]?.id;
+    expect(taskId).toBeTruthy();
+    await engine.updateTask({
+      taskId: taskId!,
+      title: 'Engine task done',
+      body: 'Updated notes',
+      status: 'done',
+    });
+
+    const document = await engine.createDocument({
+      title: 'Engine doc',
+      body: '# Engine doc\n',
+    });
+    expect(await engine.openDocument(document.id)).toMatchObject({ title: 'Engine doc' });
+    const updatedDocument = await engine.updateDocument({
+      documentId: document.id,
+      title: 'Engine doc saved',
+      body: '# Saved\n',
+    });
+    expect(updatedDocument.title).toBe('Engine doc saved');
+    expect(engine.documentPath(document.id)).toContain(`${document.id}.md`);
+
+    await engine.deleteDocument({ documentId: document.id });
+    await engine.deleteTask({ taskId: taskId! });
+    expect(send).toHaveBeenCalledWith('workspace:snapshot', expect.any(Object));
+  });
+
+  it('reports skipped, passed, and failed agent connection checks', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-agent-check-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    await store.ensureWorkspace();
+    await writeFile(
+      join(workspacePath, 'agents', 'agents.json'),
+      JSON.stringify({
+        schema: 'f5.agents.v1',
+        defaultAgentId: 'available-agent',
+        agents: [
+          {
+            id: 'available-agent',
+            name: 'Available Agent',
+            kind: 'codex-cli',
+            command: process.execPath,
+            args: [],
+            cwd: workspacePath,
+            enabled: true,
+            availability: 'available',
+          },
+          {
+            id: 'unavailable-agent',
+            name: 'Unavailable Agent',
+            kind: 'codex-cli',
+            command: 'missing-command',
+            args: [],
+            cwd: workspacePath,
+            enabled: true,
+            availability: 'unavailable',
+          },
+          {
+            id: 'disabled-agent',
+            name: 'Disabled Agent',
+            kind: 'codex-cli',
+            command: 'disabled-command',
+            args: [],
+            cwd: workspacePath,
+            enabled: false,
+            availability: 'disabled',
+          },
+        ],
+      }),
+      'utf8',
+    );
+    const engine = new ConversationEngine(store);
+
+    await expect(engine.testAgentConnection('available-agent')).resolves.toMatchObject({
+      ok: true,
+      status: 'passed',
+    });
+    await expect(engine.testAgentConnection('unavailable-agent')).resolves.toMatchObject({
+      ok: false,
+      status: 'failed',
+    });
+    await expect(engine.testAgentConnection('disabled-agent')).resolves.toMatchObject({
+      ok: false,
+      status: 'skipped',
+    });
+  });
+
+  it('marks Codex CLI process failures on the streaming assistant message', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-codex-failure-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    await store.ensureWorkspace();
+    const failScript = join(workspacePath, 'fail-codex.cjs');
+    await writeFile(
+      failScript,
+      [
+        "process.stderr.write('codex failed intentionally');",
+        'setTimeout(() => process.exit(9), 20);',
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(workspacePath, 'agents', 'agents.json'),
+      JSON.stringify({
+        schema: 'f5.agents.v1',
+        defaultAgentId: 'fail-codex',
+        agents: [
+          {
+            id: 'fail-codex',
+            name: 'Fail Codex',
+            kind: 'codex-cli',
+            command: process.execPath,
+            args: [failScript],
+            cwd: workspacePath,
+            enabled: true,
+            availability: 'available',
+            protocolVersion: 'Codex CLI',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const engine = new ConversationEngine(store);
+    const snapshot = await engine.createConversation({
+      title: 'Failure test',
+      agentId: 'fail-codex',
+    });
+    const conversationId = snapshot.activeConversation?.conversation.id;
+    expect(conversationId).toBeTruthy();
+    await engine.sendMessage({ conversationId: conversationId!, content: 'fail please' });
+
+    const idle = await engine.waitForIdle(conversationId!);
+    const assistant = idle.messages.find((message) => message.meta.role === 'assistant');
+    expect(assistant).toMatchObject({
+      body: 'codex failed intentionally',
+      meta: { status: 'failed', errorMessage: 'codex failed intentionally' },
+    });
+  });
+
+  it('times out when a conversation remains busy', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-idle-timeout-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const engine = new ConversationEngine(store);
+    const snapshot = await engine.createConversation({ title: 'Busy conversation' });
+    const conversationId = snapshot.activeConversation?.conversation.id;
+    expect(conversationId).toBeTruthy();
+    const state = await store.readState(conversationId!);
+    state.activeTurnId = makeLocalId('turn');
+    await store.writeState(state);
+
+    await expect(engine.waitForIdle(conversationId!, 20)).rejects.toThrow('did not become idle');
   });
 
   it('queues new prompts when a real adapter turn is already active', async () => {

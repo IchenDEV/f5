@@ -7,8 +7,14 @@ import { WorkspaceStore } from '../electron/main/workspace-store';
 import {
   conversationMetaSchema,
   conversationStateSchema,
+  documentIndexSchema,
+  documentRecordSchema,
   messageMetaSchema,
   profileSchema,
+  taskIndexSchema,
+  taskListIndexSchema,
+  taskListRecordSchema,
+  taskRecordSchema,
 } from '../src/shared/schemas';
 
 const workspacePath = await mkdtemp(join(tmpdir(), 'f5-smoke-'));
@@ -90,6 +96,69 @@ if (!exported.includes('## assistant')) {
   throw new Error('Export file does not include the assistant response section');
 }
 
+const explicitTaskList = await restartedStore.createTaskList({ title: 'Smoke TODO List' });
+const task = await restartedStore.createTask({
+  taskListId: explicitTaskList.id,
+  agentId: 'codex-cli-real',
+  title: 'Smoke TODO',
+  body: 'Confirm workspace TODO persistence.',
+});
+const taskListIndex = taskListIndexSchema.parse(
+  JSON.parse(await readFile(join(workspacePath, 'tasks', 'lists', 'index.json'), 'utf8')),
+);
+const smokeTaskList = taskListIndex.lists.find((item) => item.id === task.listId);
+if (!smokeTaskList) {
+  throw new Error('Task list index does not include the smoke task list');
+}
+const taskListRaw = matter(
+  await readFile(join(workspacePath, 'tasks', 'lists', `${task.listId}.md`), 'utf8'),
+);
+taskListRecordSchema.parse(taskListRaw.data);
+const updatedTask = await restartedStore.updateTask({
+  taskId: task.id,
+  title: 'Smoke TODO done',
+  body: 'Confirm workspace TODO persistence.',
+  status: 'done',
+  agentId: 'codex-acp-real',
+});
+const taskRaw = matter(await readFile(join(workspacePath, 'tasks', `${task.id}.md`), 'utf8'));
+taskRecordSchema.parse({ ...taskRaw.data, body: taskRaw.content.trimEnd() });
+if (updatedTask.status !== 'done' || !updatedTask.completedAt) {
+  throw new Error('Task status did not persist as done');
+}
+if (updatedTask.agentId !== 'codex-acp-real' || taskRaw.data.agentId !== 'codex-acp-real') {
+  throw new Error('Task agent assignment did not persist');
+}
+const taskIndex = taskIndexSchema.parse(
+  JSON.parse(await readFile(join(workspacePath, 'tasks', 'index.json'), 'utf8')),
+);
+if (!taskIndex.tasks.some((item) => item.id === task.id)) {
+  throw new Error('Task index does not include the smoke task');
+}
+
+const document = await restartedStore.createDocument({
+  title: 'Smoke Doc',
+  body: '# Smoke Doc\n\nConfirm workspace document persistence.',
+});
+const savedDocument = await restartedStore.updateDocument({
+  documentId: document.id,
+  title: 'Smoke Doc Saved',
+  body: '# Smoke Doc Saved\n\nMarkdown body saved.',
+});
+const documentRaw = matter(
+  await readFile(join(workspacePath, 'documents', `${document.id}.md`), 'utf8'),
+);
+documentRecordSchema.parse({ ...documentRaw.data, body: documentRaw.content.trimEnd() });
+if (!savedDocument.body.includes('Markdown body saved.')) {
+  throw new Error('Document body did not persist');
+}
+const documentIndex = documentIndexSchema.parse(
+  JSON.parse(await readFile(join(workspacePath, 'documents', 'index.json'), 'utf8')),
+);
+if (!documentIndex.documents.some((item) => item.id === document.id)) {
+  throw new Error('Document index does not include the smoke document');
+}
+
 console.log(
   JSON.stringify(
     {
@@ -99,6 +168,9 @@ console.log(
       lifecycle: 'archive-restore-delete passed',
       messageFiles: messageFiles.length,
       exportPath,
+      taskId: task.id,
+      taskListId: task.listId,
+      documentId: document.id,
     },
     null,
     2,

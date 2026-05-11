@@ -340,6 +340,46 @@ ipcMain.handle('conversation:delete', async (_event, input) => {
   return engine.deleteConversation(input);
 });
 
+ipcMain.handle('task:create', async (_event, input) => {
+  return engine.createTask(input);
+});
+
+ipcMain.handle('task:update', async (_event, input) => {
+  return engine.updateTask(input);
+});
+
+ipcMain.handle('task:delete', async (_event, input) => {
+  return engine.deleteTask(input);
+});
+
+ipcMain.handle('task-list:create', async (_event, input) => {
+  return engine.createTaskList(input);
+});
+
+ipcMain.handle('task-list:update', async (_event, input) => {
+  return engine.updateTaskList(input);
+});
+
+ipcMain.handle('task-list:delete', async (_event, input) => {
+  return engine.deleteTaskList(input);
+});
+
+ipcMain.handle('document:create', async (_event, input) => {
+  return engine.createDocument(input);
+});
+
+ipcMain.handle('document:open', async (_event, documentId: string) => {
+  return engine.openDocument(documentId);
+});
+
+ipcMain.handle('document:update', async (_event, input) => {
+  return engine.updateDocument(input);
+});
+
+ipcMain.handle('document:delete', async (_event, input) => {
+  return engine.deleteDocument(input);
+});
+
 ipcMain.handle('profile:update', async (_event, input) => {
   const snapshot = await engine.updateProfile(input);
   setAppIconPreference(snapshot.profile.iconTheme);
@@ -371,6 +411,12 @@ ipcMain.handle('conversation:reveal', async (_event, conversationId: string) => 
 
 ipcMain.handle('conversation:export', async (_event, conversationId: string) => {
   const path = await engine.exportConversation(conversationId);
+  shell.showItemInFolder(path);
+  return path;
+});
+
+ipcMain.handle('document:reveal', async (_event, documentId: string) => {
+  const path = engine.documentPath(documentId);
   shell.showItemInFolder(path);
   return path;
 });

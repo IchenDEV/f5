@@ -71,6 +71,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import f5LogoDarkUrl from '../../resources/icon-dark.png';
 import f5LogoUrl from '../../resources/icon.png';
 import { fallbackSnapshot } from '@/data/fallback';
+import { DocumentsPage, TasksPage } from '@/features/workspace-resources';
 import { f5Api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type {
@@ -78,11 +79,21 @@ import type {
   AgentConnectionTestResult,
   AppView,
   ConversationListItem,
+  CreateDocumentInput,
+  CreateTaskListInput,
+  CreateTaskInput,
+  DeleteDocumentInput,
+  DeleteTaskListInput,
+  DeleteTaskInput,
+  DocumentRecord,
   MessageRecord,
   OpenConversation,
   PlanStep,
   ToolActivity,
+  UpdateDocumentInput,
   UpdateProfileInput,
+  UpdateTaskListInput,
+  UpdateTaskInput,
   WorkspaceSnapshot,
 } from '../shared/types';
 
@@ -211,6 +222,24 @@ function WorkspaceApp(): React.JSX.Element {
         .includes(normalized),
     );
   }, [query, showArchived, snapshot.conversations]);
+  const filteredTasks = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return snapshot.tasks;
+    return snapshot.tasks.filter((task) =>
+      `${task.title} ${task.body} ${
+        snapshot.agents.find((agent) => agent.id === task.agentId)?.name ?? task.agentId
+      }`
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [query, snapshot.agents, snapshot.tasks]);
+  const filteredDocuments = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return snapshot.documents;
+    return snapshot.documents.filter((document) =>
+      document.title.toLowerCase().includes(normalized),
+    );
+  }, [query, snapshot.documents]);
 
   async function updateSnapshot(
     action: Promise<WorkspaceSnapshot>,
@@ -237,6 +266,69 @@ function WorkspaceApp(): React.JSX.Element {
     );
   }
 
+  async function createTask(input: CreateTaskInput): Promise<void> {
+    await updateSnapshot(f5Api.createTask(input));
+  }
+
+  async function updateTask(input: UpdateTaskInput): Promise<void> {
+    await updateSnapshot(f5Api.updateTask(input));
+  }
+
+  async function deleteTask(input: DeleteTaskInput): Promise<void> {
+    await updateSnapshot(f5Api.deleteTask(input));
+  }
+
+  async function createTaskList(input: CreateTaskListInput): Promise<void> {
+    await updateSnapshot(f5Api.createTaskList(input));
+  }
+
+  async function updateTaskList(input: UpdateTaskListInput): Promise<void> {
+    await updateSnapshot(f5Api.updateTaskList(input));
+  }
+
+  async function deleteTaskList(input: DeleteTaskListInput): Promise<void> {
+    await updateSnapshot(f5Api.deleteTaskList(input));
+  }
+
+  async function refreshWorkspace(): Promise<void> {
+    await updateSnapshot(f5Api.initializeWorkspace(active?.conversation.id));
+  }
+
+  async function createDocument(input: CreateDocumentInput): Promise<DocumentRecord> {
+    try {
+      const document = await f5Api.createDocument(input);
+      await refreshWorkspace();
+      return document;
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
+    }
+  }
+
+  async function openDocument(documentId: string): Promise<DocumentRecord> {
+    try {
+      return await f5Api.openDocument(documentId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
+    }
+  }
+
+  async function updateDocument(input: UpdateDocumentInput): Promise<DocumentRecord> {
+    try {
+      const document = await f5Api.updateDocument(input);
+      await refreshWorkspace();
+      return document;
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
+    }
+  }
+
+  async function deleteDocument(input: DeleteDocumentInput): Promise<void> {
+    await updateSnapshot(f5Api.deleteDocument(input));
+  }
+
   async function sendPrompt(): Promise<void> {
     if (!active || !draft.trim()) return;
     const content = draft.trim();
@@ -257,6 +349,7 @@ function WorkspaceApp(): React.JSX.Element {
           />
           <div className="flex min-w-0 flex-1 flex-col">
             <TopChrome
+              view={view}
               query={query}
               onQueryChange={setQuery}
               onNewConversation={() => setNewOpen(true)}
@@ -308,6 +401,11 @@ function WorkspaceApp(): React.JSX.Element {
                 view={view}
                 snapshot={snapshot}
                 active={active}
+                taskLists={snapshot.taskLists}
+                tasks={filteredTasks}
+                documents={filteredDocuments}
+                query={query}
+                onQueryChange={setQuery}
                 draft={draft}
                 panelOpen={panelOpen}
                 onDraftChange={setDraft}
@@ -357,6 +455,19 @@ function WorkspaceApp(): React.JSX.Element {
                 onThemePreview={setThemePreference}
                 onIconThemePreview={setIconThemePreference}
                 iconPreviewUrl={currentLogoUrl}
+                onCreateTask={createTask}
+                onUpdateTask={updateTask}
+                onDeleteTask={deleteTask}
+                onCreateTaskList={createTaskList}
+                onUpdateTaskList={updateTaskList}
+                onDeleteTaskList={deleteTaskList}
+                onCreateDocument={createDocument}
+                onOpenDocument={openDocument}
+                onUpdateDocument={updateDocument}
+                onDeleteDocument={deleteDocument}
+                onRevealDocument={(documentId) =>
+                  f5Api.revealDocument(documentId).then(() => undefined)
+                }
               />
             </div>
           </div>
@@ -434,6 +545,7 @@ function WorkspaceApp(): React.JSX.Element {
  * Top chrome groups macOS-style controls, search, quick create, and theme in one fixed row.
  */
 function TopChrome(props: {
+  view: AppView;
   query: string;
   onQueryChange: (value: string) => void;
   onNewConversation: () => void;
@@ -441,6 +553,7 @@ function TopChrome(props: {
   onBack: () => void;
   onForward: () => void;
 }): React.JSX.Element {
+  const placeholder = searchPlaceholder(props.view);
   return (
     <header className="app-drag flex h-14 shrink-0 items-center gap-3 px-6">
       <div className="flex items-center gap-1 text-muted-foreground">
@@ -461,10 +574,10 @@ function TopChrome(props: {
         <div className="relative hidden w-[280px] md:block">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            aria-label="Search conversations"
+            aria-label={placeholder}
             value={props.query}
             onChange={(event) => props.onQueryChange(event.target.value)}
-            placeholder="Search conversations"
+            placeholder={placeholder}
             className="liquid-glass-control h-9 rounded-lg pl-9"
           />
         </div>
@@ -473,6 +586,12 @@ function TopChrome(props: {
       </div>
     </header>
   );
+}
+
+function searchPlaceholder(view: AppView): string {
+  if (view === 'tasks') return 'Search TODO';
+  if (view === 'documents') return 'Search docs';
+  return 'Search conversations';
 }
 
 /**
@@ -487,6 +606,8 @@ function NavigationRail(props: {
 }): React.JSX.Element {
   const items = [
     { label: 'Chat', icon: MessageCircle, view: 'workspace' as const },
+    { label: 'TODO', icon: Check, view: 'tasks' as const },
+    { label: 'Docs', icon: FileText, view: 'documents' as const },
     { label: 'Workspace overview', icon: Grid2X2, view: 'overview' as const },
     { label: 'Agents', icon: Bot, view: 'agents' as const },
   ];
@@ -586,7 +707,7 @@ function ConversationPane(props: {
     <div className="flex h-full min-h-0 flex-col px-4 py-4">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Workspace 3
+          Chats
         </h2>
         <NewConversationButton
           onNew={props.onNew}
@@ -770,6 +891,11 @@ function WorkspaceSurface(props: {
   view: AppView;
   snapshot: WorkspaceSnapshot;
   active?: OpenConversation;
+  taskLists: WorkspaceSnapshot['taskLists'];
+  tasks: WorkspaceSnapshot['tasks'];
+  documents: WorkspaceSnapshot['documents'];
+  query: string;
+  onQueryChange: (value: string) => void;
   draft: string;
   panelOpen: boolean;
   onDraftChange: (value: string) => void;
@@ -792,6 +918,17 @@ function WorkspaceSurface(props: {
   onThemePreview: (theme: ThemePreference) => void;
   onIconThemePreview: (theme: IconThemePreference) => void;
   iconPreviewUrl: string;
+  onCreateTask: (input: CreateTaskInput) => Promise<void>;
+  onUpdateTask: (input: UpdateTaskInput) => Promise<void>;
+  onDeleteTask: (input: DeleteTaskInput) => Promise<void>;
+  onCreateTaskList: (input: CreateTaskListInput) => Promise<void>;
+  onUpdateTaskList: (input: UpdateTaskListInput) => Promise<void>;
+  onDeleteTaskList: (input: DeleteTaskListInput) => Promise<void>;
+  onCreateDocument: (input: CreateDocumentInput) => Promise<DocumentRecord>;
+  onOpenDocument: (documentId: string) => Promise<DocumentRecord>;
+  onUpdateDocument: (input: UpdateDocumentInput) => Promise<DocumentRecord>;
+  onDeleteDocument: (input: DeleteDocumentInput) => Promise<void>;
+  onRevealDocument: (documentId: string) => Promise<void>;
 }): React.JSX.Element {
   const active = props.active;
   if (props.view === 'user-profile') {
@@ -809,6 +946,40 @@ function WorkspaceSurface(props: {
   if (props.view === 'agent-profile') {
     return (
       <AgentProfilePage agent={active?.agent ?? props.snapshot.agents[0]} onBack={props.onBack} />
+    );
+  }
+  if (props.view === 'tasks') {
+    return (
+      <TasksPage
+        taskLists={props.taskLists}
+        tasks={props.tasks}
+        agents={props.snapshot.agents}
+        defaultAgentId={props.snapshot.profile.defaultAgentId}
+        query={props.query}
+        onQueryChange={props.onQueryChange}
+        onBack={props.onBack}
+        onCreateTaskList={props.onCreateTaskList}
+        onUpdateTaskList={props.onUpdateTaskList}
+        onDeleteTaskList={props.onDeleteTaskList}
+        onCreateTask={props.onCreateTask}
+        onUpdateTask={props.onUpdateTask}
+        onDeleteTask={props.onDeleteTask}
+      />
+    );
+  }
+  if (props.view === 'documents') {
+    return (
+      <DocumentsPage
+        documents={props.documents}
+        query={props.query}
+        onQueryChange={props.onQueryChange}
+        onBack={props.onBack}
+        onCreateDocument={props.onCreateDocument}
+        onOpenDocument={props.onOpenDocument}
+        onUpdateDocument={props.onUpdateDocument}
+        onDeleteDocument={props.onDeleteDocument}
+        onRevealDocument={props.onRevealDocument}
+      />
     );
   }
   if (props.view === 'overview') {
@@ -1468,13 +1639,16 @@ function WorkspaceOverviewPage({
     (total, conversation) => total + conversation.messageCount,
     0,
   );
+  const todoCount = snapshot.tasks.filter((task) => task.status === 'todo').length;
   return (
     <ProfileShell title="Workspace Overview" onBack={onBack}>
-      <CardContent className="grid gap-4 sm:grid-cols-3">
+      <CardContent className="grid gap-4 sm:grid-cols-5">
         <MetricCard label="Active conversations" value={String(activeCount)} />
         <MetricCard label="Archived conversations" value={String(archivedCount)} />
         <MetricCard label="Messages" value={String(messageCount)} />
-        <div className="rounded-lg border bg-muted/30 p-4 text-sm sm:col-span-3">
+        <MetricCard label="Open TODO" value={String(todoCount)} />
+        <MetricCard label="Docs" value={String(snapshot.documents.length)} />
+        <div className="rounded-lg border bg-muted/30 p-4 text-sm sm:col-span-5">
           <div className="font-medium">Workspace path</div>
           <div className="mt-2 break-all text-muted-foreground">{snapshot.workspacePath}</div>
           <Button className="mt-4" variant="outline" onClick={() => void f5Api.revealWorkspace()}>

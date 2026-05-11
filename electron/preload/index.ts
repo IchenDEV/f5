@@ -3,11 +3,21 @@ import type {
   ArchiveConversationInput,
   CancelQueuedInput,
   CreateConversationInput,
+  CreateDocumentInput,
+  CreateTaskListInput,
+  CreateTaskInput,
   DeleteConversationInput,
+  DeleteDocumentInput,
+  DeleteTaskListInput,
+  DeleteTaskInput,
+  DocumentRecord,
   RenameConversationInput,
   SendMessageInput,
   StarConversationInput,
+  UpdateDocumentInput,
   UpdateProfileInput,
+  UpdateTaskListInput,
+  UpdateTaskInput,
   AgentConnectionTestResult,
   WorkspaceSnapshot,
 } from '../../src/shared/types';
@@ -30,6 +40,26 @@ contextBridge.exposeInMainWorld('f5', {
     ipcRenderer.invoke('conversation:archive', input),
   deleteConversation: (input: DeleteConversationInput): Promise<WorkspaceSnapshot> =>
     ipcRenderer.invoke('conversation:delete', input),
+  createTask: (input: CreateTaskInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('task:create', input),
+  updateTask: (input: UpdateTaskInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('task:update', input),
+  deleteTask: (input: DeleteTaskInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('task:delete', input),
+  createTaskList: (input: CreateTaskListInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('task-list:create', input),
+  updateTaskList: (input: UpdateTaskListInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('task-list:update', input),
+  deleteTaskList: (input: DeleteTaskListInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('task-list:delete', input),
+  createDocument: (input: CreateDocumentInput): Promise<DocumentRecord> =>
+    ipcRenderer.invoke('document:create', input),
+  openDocument: (documentId: string): Promise<DocumentRecord> =>
+    ipcRenderer.invoke('document:open', documentId),
+  updateDocument: (input: UpdateDocumentInput): Promise<DocumentRecord> =>
+    ipcRenderer.invoke('document:update', input),
+  deleteDocument: (input: DeleteDocumentInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('document:delete', input),
   updateProfile: (input: UpdateProfileInput): Promise<WorkspaceSnapshot> =>
     ipcRenderer.invoke('profile:update', input),
   testAgentConnection: (agentId: string): Promise<AgentConnectionTestResult> =>
@@ -43,6 +73,8 @@ contextBridge.exposeInMainWorld('f5', {
     ipcRenderer.invoke('conversation:reveal', conversationId),
   exportConversation: (conversationId: string): Promise<string> =>
     ipcRenderer.invoke('conversation:export', conversationId),
+  revealDocument: (documentId: string): Promise<string> =>
+    ipcRenderer.invoke('document:reveal', documentId),
   onWorkspaceSnapshot: (callback: (snapshot: WorkspaceSnapshot) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: WorkspaceSnapshot) =>
       callback(snapshot);

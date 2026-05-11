@@ -8,6 +8,8 @@ F5 is a local AI workspace for talking with coding agents, tracking their work, 
 
 - Multi-conversation workspace with a searchable conversation list.
 - Markdown-backed conversation storage under the local workspace folder.
+- Workspace-level TODO lists backed by local Markdown files, with task Agent assignment.
+- Workspace-level Markdown documents with automatic save, edit, and preview.
 - Real Codex CLI agent integration with queued prompts and visible agent progress.
 - Agent side panel for plan steps, tool activity, session details, and raw logs.
 - Conversation actions for star, rename, archive, delete, export, and showing file location.
@@ -36,8 +38,9 @@ The development app opens as an Electron window and serves the renderer at `http
 
 - `pnpm dev`: run the Electron app in development mode.
 - `pnpm build`: type-check and build the Electron main, preload, and renderer bundles.
-- `pnpm check`: run type-check, lint, format check, and OpenSpec validation.
+- `pnpm check`: run type-check, lint, format check, 80% unit coverage, and OpenSpec validation.
 - `pnpm test`: run Vitest tests.
+- `pnpm test:coverage`: run Vitest with 80% statement, function, and line coverage thresholds.
 - `pnpm format`: format the project.
 - `pnpm smoke:product`: run the product smoke test.
 - `pnpm smoke:codex-acp`: run Codex ACP discovery and verification.
@@ -56,6 +59,15 @@ Each conversation is stored as a folder with:
 - `messages/*.md`: one Markdown file per message.
 - `state.json`: queue, agent plan, tools, and session state.
 - `attachments/`: local files attached to the conversation.
+
+Workspace resources are stored beside conversations:
+
+- `tasks/*.md`: one Markdown-backed TODO item per file.
+- `tasks/lists/*.md`: one Markdown-backed TODO list per file.
+- `tasks/index.json`: derived TODO index.
+- `tasks/lists/index.json`: derived TODO list index.
+- `documents/*.md`: one Markdown document per file.
+- `documents/index.json`: derived document index.
 
 Use `Help > Show Workspace Folder` in the app menu to open the workspace folder directly.
 
