@@ -2,11 +2,20 @@ import type {
   ArchiveConversationInput,
   CancelQueuedInput,
   CreateConversationInput,
+  CreateDocumentInput,
+  CreateTaskListInput,
+  CreateTaskInput,
   DeleteConversationInput,
+  DeleteDocumentInput,
+  DeleteTaskListInput,
+  DeleteTaskInput,
   RenameConversationInput,
   SendMessageInput,
   StarConversationInput,
+  UpdateDocumentInput,
   UpdateProfileInput,
+  UpdateTaskListInput,
+  UpdateTaskInput,
   WorkspaceSnapshot,
 } from '../../shared/types';
 
@@ -32,6 +41,36 @@ export const f5Api = {
   deleteConversation(input: DeleteConversationInput) {
     return window.f5.deleteConversation(input);
   },
+  createTask(input: CreateTaskInput) {
+    return window.f5.createTask(input);
+  },
+  updateTask(input: UpdateTaskInput) {
+    return window.f5.updateTask(input);
+  },
+  deleteTask(input: DeleteTaskInput) {
+    return window.f5.deleteTask(input);
+  },
+  createTaskList(input: CreateTaskListInput) {
+    return window.f5.createTaskList(input);
+  },
+  updateTaskList(input: UpdateTaskListInput) {
+    return window.f5.updateTaskList(input);
+  },
+  deleteTaskList(input: DeleteTaskListInput) {
+    return window.f5.deleteTaskList(input);
+  },
+  createDocument(input: CreateDocumentInput) {
+    return window.f5.createDocument(input);
+  },
+  openDocument(documentId: string) {
+    return window.f5.openDocument(documentId);
+  },
+  updateDocument(input: UpdateDocumentInput) {
+    return window.f5.updateDocument(input);
+  },
+  deleteDocument(input: DeleteDocumentInput) {
+    return window.f5.deleteDocument(input);
+  },
   updateProfile(input: UpdateProfileInput) {
     return window.f5.updateProfile(input);
   },
@@ -52,6 +91,9 @@ export const f5Api = {
   },
   exportConversation(conversationId: string) {
     return window.f5.exportConversation(conversationId);
+  },
+  revealDocument(documentId: string) {
+    return window.f5.revealDocument(documentId);
   },
   onWorkspaceSnapshot(callback: (snapshot: WorkspaceSnapshot) => void) {
     return window.f5.onWorkspaceSnapshot(callback);

@@ -1,4 +1,4 @@
-export type LocalIdPrefix = 'conv' | 'msg' | 'turn' | 'tool' | 'plan';
+export type LocalIdPrefix = 'conv' | 'msg' | 'turn' | 'tool' | 'plan' | 'task' | 'tasklist' | 'doc';
 
 export type ConversationStatus = 'active' | 'archived' | 'needs_repair';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -14,7 +14,16 @@ export type AgentKind = 'acp-stdio' | 'codex-cli';
 export type AgentAvailability = 'available' | 'unavailable' | 'disabled';
 export type PlanStepStatus = 'completed' | 'active' | 'pending' | 'failed';
 export type ToolStatus = 'running' | 'queued' | 'completed' | 'failed';
-export type AppView = 'workspace' | 'user-profile' | 'agent-profile' | 'overview' | 'agents';
+export type TaskStatus = 'todo' | 'done';
+export type RepairStatus = 'ok' | 'needs_repair';
+export type AppView =
+  | 'workspace'
+  | 'tasks'
+  | 'documents'
+  | 'user-profile'
+  | 'agent-profile'
+  | 'overview'
+  | 'agents';
 export type AppearancePreference = 'light' | 'dark' | 'system';
 
 export interface ConversationMeta {
@@ -112,6 +121,75 @@ export interface UserProfile {
   iconTheme: AppearancePreference;
 }
 
+export interface TaskRecord {
+  schema: 'f5.task.v1';
+  id: string;
+  listId: string;
+  agentId: string;
+  title: string;
+  status: TaskStatus;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string;
+  order: number;
+  body: string;
+}
+
+export interface TaskListItem extends TaskRecord {
+  repairStatus: RepairStatus;
+}
+
+export interface TaskIndex {
+  schema: 'f5.task.index.v1';
+  tasks: TaskListItem[];
+  rebuiltAt: string;
+}
+
+export interface TaskListRecord {
+  schema: 'f5.task-list.v1';
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  order: number;
+}
+
+export interface TaskListSummary extends TaskListRecord {
+  repairStatus: RepairStatus;
+  taskCount: number;
+  openCount: number;
+}
+
+export interface TaskListIndex {
+  schema: 'f5.task-list.index.v1';
+  lists: TaskListSummary[];
+  rebuiltAt: string;
+}
+
+export interface DocumentRecord {
+  schema: 'f5.document.v1';
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  body: string;
+}
+
+export interface DocumentListItem {
+  schema: 'f5.document.v1';
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  repairStatus: RepairStatus;
+}
+
+export interface DocumentIndex {
+  schema: 'f5.document.index.v1';
+  documents: DocumentListItem[];
+  rebuiltAt: string;
+}
+
 export interface ConversationListItem extends ConversationMeta {
   agentName: string;
   agentStatus: AgentAvailability;
@@ -161,6 +239,53 @@ export interface DeleteConversationInput {
   conversationId: string;
 }
 
+export interface CreateTaskInput {
+  taskListId?: string;
+  agentId?: string;
+  title: string;
+  body?: string;
+}
+
+export interface UpdateTaskInput {
+  taskId: string;
+  title: string;
+  body: string;
+  status: TaskStatus;
+  agentId?: string;
+}
+
+export interface DeleteTaskInput {
+  taskId: string;
+}
+
+export interface CreateTaskListInput {
+  title: string;
+}
+
+export interface UpdateTaskListInput {
+  taskListId: string;
+  title: string;
+}
+
+export interface DeleteTaskListInput {
+  taskListId: string;
+}
+
+export interface CreateDocumentInput {
+  title?: string;
+  body?: string;
+}
+
+export interface UpdateDocumentInput {
+  documentId: string;
+  title: string;
+  body: string;
+}
+
+export interface DeleteDocumentInput {
+  documentId: string;
+}
+
 export interface CancelQueuedInput {
   conversationId: string;
   messageId: string;
@@ -187,6 +312,9 @@ export interface WorkspaceSnapshot {
   profile: UserProfile;
   agents: AgentConfig[];
   conversations: ConversationListItem[];
+  taskLists: TaskListSummary[];
+  tasks: TaskListItem[];
+  documents: DocumentListItem[];
   activeConversation?: OpenConversation;
 }
 

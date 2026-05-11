@@ -12,4 +12,7 @@ export const fallbackSnapshot: WorkspaceSnapshot = {
   },
   agents: [],
   conversations: [],
+  taskLists: [],
+  tasks: [],
+  documents: [],
 };

@@ -6,25 +6,45 @@ import { join } from 'node:path';
 import {
   archiveConversationInputSchema,
   cancelQueuedInputSchema,
+  createTaskListInputSchema,
+  createDocumentInputSchema,
   createConversationInputSchema,
+  createTaskInputSchema,
+  deleteTaskListInputSchema,
+  deleteDocumentInputSchema,
   deleteConversationInputSchema,
+  deleteTaskInputSchema,
+  documentIdSchema,
   renameConversationInputSchema,
   sendMessageInputSchema,
   starConversationInputSchema,
+  updateDocumentInputSchema,
   updateProfileInputSchema,
+  updateTaskListInputSchema,
+  updateTaskInputSchema,
 } from '../../src/shared/schemas';
 import type {
   AgentConnectionTestResult,
   ArchiveConversationInput,
   CancelQueuedInput,
   CreateConversationInput,
+  CreateDocumentInput,
+  CreateTaskListInput,
+  CreateTaskInput,
   DeleteConversationInput,
+  DeleteDocumentInput,
+  DeleteTaskListInput,
+  DeleteTaskInput,
+  DocumentRecord,
   MessageRecord,
   OpenConversation,
   RenameConversationInput,
   SendMessageInput,
   StarConversationInput,
+  UpdateDocumentInput,
   UpdateProfileInput,
+  UpdateTaskListInput,
+  UpdateTaskInput,
   WorkspaceSnapshot,
 } from '../../src/shared/types';
 import { AcpStdioClient } from './acp-client';
@@ -97,6 +117,70 @@ export class ConversationEngine {
     const parsed = deleteConversationInputSchema.parse(input);
     await this.store.deleteConversation(parsed);
     return this.emitSnapshot();
+  }
+
+  async createTask(input: CreateTaskInput): Promise<WorkspaceSnapshot> {
+    const parsed = createTaskInputSchema.parse(input);
+    await this.store.createTask(parsed);
+    return this.emitSnapshot();
+  }
+
+  async updateTask(input: UpdateTaskInput): Promise<WorkspaceSnapshot> {
+    const parsed = updateTaskInputSchema.parse(input);
+    await this.store.updateTask(parsed);
+    return this.emitSnapshot();
+  }
+
+  async deleteTask(input: DeleteTaskInput): Promise<WorkspaceSnapshot> {
+    const parsed = deleteTaskInputSchema.parse(input);
+    await this.store.deleteTask(parsed);
+    return this.emitSnapshot();
+  }
+
+  async createTaskList(input: CreateTaskListInput): Promise<WorkspaceSnapshot> {
+    const parsed = createTaskListInputSchema.parse(input);
+    await this.store.createTaskList(parsed);
+    return this.emitSnapshot();
+  }
+
+  async updateTaskList(input: UpdateTaskListInput): Promise<WorkspaceSnapshot> {
+    const parsed = updateTaskListInputSchema.parse(input);
+    await this.store.updateTaskList(parsed);
+    return this.emitSnapshot();
+  }
+
+  async deleteTaskList(input: DeleteTaskListInput): Promise<WorkspaceSnapshot> {
+    const parsed = deleteTaskListInputSchema.parse(input);
+    await this.store.deleteTaskList(parsed);
+    return this.emitSnapshot();
+  }
+
+  async createDocument(input: CreateDocumentInput): Promise<DocumentRecord> {
+    const parsed = createDocumentInputSchema.parse(input);
+    const document = await this.store.createDocument(parsed);
+    await this.emitSnapshot();
+    return document;
+  }
+
+  async openDocument(documentId: string): Promise<DocumentRecord> {
+    return this.store.readDocument(documentIdSchema.parse(documentId));
+  }
+
+  async updateDocument(input: UpdateDocumentInput): Promise<DocumentRecord> {
+    const parsed = updateDocumentInputSchema.parse(input);
+    const document = await this.store.updateDocument(parsed);
+    await this.emitSnapshot();
+    return document;
+  }
+
+  async deleteDocument(input: DeleteDocumentInput): Promise<WorkspaceSnapshot> {
+    const parsed = deleteDocumentInputSchema.parse(input);
+    await this.store.deleteDocument(parsed);
+    return this.emitSnapshot();
+  }
+
+  documentPath(documentId: string): string {
+    return this.store.documentPath(documentId);
   }
 
   conversationPath(conversationId: string): string {

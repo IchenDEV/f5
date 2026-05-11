@@ -18,9 +18,21 @@ import {
   conversationIdSchema,
   conversationMetaSchema,
   conversationStateSchema,
+  deleteDocumentInputSchema,
   deleteConversationInputSchema,
+  deleteTaskListInputSchema,
+  deleteTaskInputSchema,
+  documentIdSchema,
+  documentIndexSchema,
+  documentRecordSchema,
   messageMetaSchema,
   profileSchema,
+  taskIdSchema,
+  taskIndexSchema,
+  taskListIdSchema,
+  taskListIndexSchema,
+  taskListRecordSchema,
+  taskRecordSchema,
 } from '../../src/shared/schemas';
 import type {
   ArchiveConversationInput,
@@ -31,13 +43,31 @@ import type {
   ConversationMeta,
   ConversationState,
   CreateConversationInput,
+  CreateDocumentInput,
+  CreateTaskListInput,
+  CreateTaskInput,
   DeleteConversationInput,
+  DeleteDocumentInput,
+  DeleteTaskListInput,
+  DeleteTaskInput,
+  DocumentIndex,
+  DocumentListItem,
+  DocumentRecord,
   MessageMeta,
   MessageRecord,
   OpenConversation,
   RenameConversationInput,
   StarConversationInput,
+  TaskIndex,
+  TaskListItem,
+  TaskListIndex,
+  TaskListRecord,
+  TaskListSummary,
+  TaskRecord,
+  UpdateDocumentInput,
   UpdateProfileInput,
+  UpdateTaskListInput,
+  UpdateTaskInput,
   UserProfile,
   WorkspaceSnapshot,
 } from '../../src/shared/types';
@@ -88,7 +118,9 @@ export const defaultAgentsFile: AgentsFile = {
   ],
 };
 
-export function makeLocalId(prefix: 'conv' | 'msg' | 'turn' | 'tool' | 'plan'): string {
+export function makeLocalId(
+  prefix: 'conv' | 'msg' | 'turn' | 'tool' | 'plan' | 'task' | 'tasklist' | 'doc',
+): string {
   return `${prefix}_${randomUUID().replaceAll('-', '').slice(0, 24)}`;
 }
 
@@ -102,6 +134,36 @@ export function conversationDir(workspacePath: string, conversationId: string): 
   const target = resolve(root, parsed);
   if (target !== root && !target.startsWith(`${root}${sep}`)) {
     throw new Error(`Conversation path escapes workspace: ${conversationId}`);
+  }
+  return target;
+}
+
+export function taskFilePath(workspacePath: string, taskId: string): string {
+  const parsed = taskIdSchema.parse(taskId);
+  const root = resolve(workspacePath, 'tasks');
+  const target = resolve(root, `${parsed}.md`);
+  if (target !== root && !target.startsWith(`${root}${sep}`)) {
+    throw new Error(`Task path escapes workspace: ${taskId}`);
+  }
+  return target;
+}
+
+export function taskListFilePath(workspacePath: string, taskListId: string): string {
+  const parsed = taskListIdSchema.parse(taskListId);
+  const root = resolve(workspacePath, 'tasks', 'lists');
+  const target = resolve(root, `${parsed}.md`);
+  if (target !== root && !target.startsWith(`${root}${sep}`)) {
+    throw new Error(`Task list path escapes workspace: ${taskListId}`);
+  }
+  return target;
+}
+
+export function documentFilePath(workspacePath: string, documentId: string): string {
+  const parsed = documentIdSchema.parse(documentId);
+  const root = resolve(workspacePath, 'documents');
+  const target = resolve(root, `${parsed}.md`);
+  if (target !== root && !target.startsWith(`${root}${sep}`)) {
+    throw new Error(`Document path escapes workspace: ${documentId}`);
   }
   return target;
 }
@@ -171,9 +233,16 @@ export class WorkspaceStore {
   async ensureWorkspace(): Promise<void> {
     await mkdir(join(this.workspacePath, 'conversations'), { recursive: true });
     await mkdir(join(this.workspacePath, 'agents'), { recursive: true });
+    await mkdir(join(this.workspacePath, 'tasks'), { recursive: true });
+    await mkdir(join(this.workspacePath, 'tasks', 'lists'), { recursive: true });
+    await mkdir(join(this.workspacePath, 'documents'), { recursive: true });
     await this.ensureAgentsFile();
     await this.ensureProfile();
+    await this.ensureDefaultTaskList();
     await this.rebuildIndex();
+    await this.rebuildTaskIndex();
+    await this.rebuildTaskListIndex();
+    await this.rebuildDocumentIndex();
   }
 
   async resetWorkspace(): Promise<void> {
@@ -272,6 +341,398 @@ export class WorkspaceStore {
   async getAgent(agentId: string): Promise<AgentConfig> {
     const agents = await this.loadAgents();
     return agents.find((agent) => agent.id === agentId) ?? (await this.getDefaultAgent());
+  }
+
+  async createTask(input: CreateTaskInput): Promise<TaskRecord> {
+    await this.ensureWorkspace();
+    const timestamp = nowIso();
+    const list = input.taskListId
+      ? await this.readTaskList(input.taskListId)
+      : await this.ensureDefaultTaskList();
+    const agent = input.agentId ? await this.getAgent(input.agentId) : await this.getDefaultAgent();
+    const task: TaskRecord = {
+      schema: 'f5.task.v1',
+      id: makeLocalId('task'),
+      listId: list.id,
+      agentId: agent.id,
+      title: input.title.trim(),
+      status: 'todo',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      completedAt: '',
+      order: Date.now(),
+      body: input.body?.trimEnd() ?? '',
+    };
+    await this.writeTask(task);
+    await this.rebuildTaskIndex();
+    await this.rebuildTaskListIndex();
+    return task;
+  }
+
+  async updateTask(input: UpdateTaskInput): Promise<TaskRecord> {
+    const current = await this.readTask(input.taskId);
+    const timestamp = nowIso();
+    const completedAt = input.status === 'done' ? current.completedAt || timestamp : '';
+    const agent = input.agentId ? await this.getAgent(input.agentId) : undefined;
+    const next: TaskRecord = {
+      ...current,
+      agentId: agent?.id ?? current.agentId,
+      title: input.title.trim(),
+      body: input.body.trimEnd(),
+      status: input.status,
+      updatedAt: timestamp,
+      completedAt,
+    };
+    await this.writeTask(next);
+    await this.rebuildTaskIndex();
+    await this.rebuildTaskListIndex();
+    return next;
+  }
+
+  async deleteTask(input: DeleteTaskInput): Promise<void> {
+    const parsed = deleteTaskInputSchema.parse(input);
+    const path = taskFilePath(this.workspacePath, parsed.taskId);
+    await ensureRealPathInside(resolve(this.workspacePath, 'tasks'), path);
+    await rm(path, { force: true });
+    await this.rebuildTaskIndex();
+    await this.rebuildTaskListIndex();
+  }
+
+  async readTask(taskId: string): Promise<TaskRecord> {
+    const raw = matter(await readFile(taskFilePath(this.workspacePath, taskId), 'utf8'));
+    const candidate = { ...raw.data, body: raw.content.trimEnd() };
+    const parsed = taskRecordSchema.safeParse(candidate);
+    if (parsed.success) return parsed.data;
+    if (!('listId' in candidate) || !('agentId' in candidate)) {
+      const listId =
+        'listId' in candidate && typeof candidate.listId === 'string'
+          ? candidate.listId
+          : (await this.ensureDefaultTaskList()).id;
+      const agentId =
+        'agentId' in candidate && typeof candidate.agentId === 'string'
+          ? candidate.agentId
+          : (await this.getDefaultAgent()).id;
+      const migrated = taskRecordSchema.parse({ ...candidate, listId, agentId });
+      await this.writeTask(migrated);
+      return migrated;
+    }
+    return taskRecordSchema.parse(candidate);
+  }
+
+  async writeTask(record: TaskRecord): Promise<void> {
+    const parsed = taskRecordSchema.parse(record);
+    const { body, ...meta } = parsed;
+    await atomicWriteFile(
+      taskFilePath(this.workspacePath, parsed.id),
+      markdownWithFrontmatter(meta, body),
+    );
+  }
+
+  async listTasks(): Promise<TaskListItem[]> {
+    await mkdir(join(this.workspacePath, 'tasks'), { recursive: true });
+    const files = (await readdir(join(this.workspacePath, 'tasks')))
+      .filter((file) => file.endsWith('.md'))
+      .filter((file) => taskIdSchema.safeParse(basename(file, '.md')).success)
+      .sort();
+    const items = await Promise.all(files.map((file) => this.readTaskListItem(file)));
+    return items.sort((a, b) => a.order - b.order || b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async rebuildTaskIndex(): Promise<TaskIndex> {
+    const index: TaskIndex = {
+      schema: 'f5.task.index.v1',
+      tasks: await this.listTasks(),
+      rebuiltAt: nowIso(),
+    };
+    await atomicWriteJson(
+      join(this.workspacePath, 'tasks', 'index.json'),
+      taskIndexSchema.parse(index),
+    );
+    return index;
+  }
+
+  private async readTaskListItem(file: string): Promise<TaskListItem> {
+    const id = basename(file, '.md');
+    try {
+      return { ...(await this.readTask(id)), repairStatus: 'ok' };
+    } catch {
+      const timestamp = nowIso();
+      const list = await this.ensureDefaultTaskList();
+      const agent = await this.getDefaultAgent();
+      return {
+        schema: 'f5.task.v1',
+        id: taskIdSchema.parse(id),
+        listId: list.id,
+        agentId: agent.id,
+        title: basename(id),
+        status: 'todo',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        completedAt: '',
+        order: Number.MAX_SAFE_INTEGER,
+        body: 'This task needs repair.',
+        repairStatus: 'needs_repair',
+      };
+    }
+  }
+
+  async ensureDefaultTaskList(): Promise<TaskListRecord> {
+    await mkdir(join(this.workspacePath, 'tasks', 'lists'), { recursive: true });
+    const existing = await this.listTaskListRecords();
+    const firstHealthy = existing.sort((a, b) => a.order - b.order)[0];
+    if (firstHealthy) return firstHealthy;
+    const timestamp = nowIso();
+    const list: TaskListRecord = {
+      schema: 'f5.task-list.v1',
+      id: makeLocalId('tasklist'),
+      title: 'Inbox',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      order: 0,
+    };
+    await this.writeTaskList(list);
+    return list;
+  }
+
+  async createTaskList(input: CreateTaskListInput): Promise<TaskListRecord> {
+    await this.ensureWorkspace();
+    const timestamp = nowIso();
+    const list: TaskListRecord = {
+      schema: 'f5.task-list.v1',
+      id: makeLocalId('tasklist'),
+      title: input.title.trim(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      order: Date.now(),
+    };
+    await this.writeTaskList(list);
+    await this.rebuildTaskListIndex();
+    return list;
+  }
+
+  async updateTaskList(input: UpdateTaskListInput): Promise<TaskListRecord> {
+    const current = await this.readTaskList(input.taskListId);
+    const next: TaskListRecord = {
+      ...current,
+      title: input.title.trim(),
+      updatedAt: nowIso(),
+    };
+    await this.writeTaskList(next);
+    await this.rebuildTaskListIndex();
+    return next;
+  }
+
+  async deleteTaskList(input: DeleteTaskListInput): Promise<void> {
+    const parsed = deleteTaskListInputSchema.parse(input);
+    const lists = await this.listTaskLists();
+    if (lists.filter((list) => list.repairStatus === 'ok').length <= 1) {
+      throw new Error('Cannot delete the only TODO list.');
+    }
+    const tasks = await this.listTasks();
+    await Promise.all(
+      tasks
+        .filter((task) => task.listId === parsed.taskListId && task.repairStatus === 'ok')
+        .map((task) => rm(taskFilePath(this.workspacePath, task.id), { force: true })),
+    );
+    const path = taskListFilePath(this.workspacePath, parsed.taskListId);
+    await ensureRealPathInside(resolve(this.workspacePath, 'tasks', 'lists'), path);
+    await rm(path, { force: true });
+    await this.ensureDefaultTaskList();
+    await this.rebuildTaskIndex();
+    await this.rebuildTaskListIndex();
+  }
+
+  async readTaskList(taskListId: string): Promise<TaskListRecord> {
+    const raw = matter(await readFile(taskListFilePath(this.workspacePath, taskListId), 'utf8'));
+    return taskListRecordSchema.parse(raw.data);
+  }
+
+  async writeTaskList(record: TaskListRecord): Promise<void> {
+    const parsed = taskListRecordSchema.parse(record);
+    await atomicWriteFile(
+      taskListFilePath(this.workspacePath, parsed.id),
+      markdownWithFrontmatter(parsed, `# ${parsed.title}\n`),
+    );
+  }
+
+  async listTaskLists(): Promise<TaskListSummary[]> {
+    await this.ensureDefaultTaskList();
+    const records = await this.listTaskListRecords();
+    const tasks = await this.listTasks();
+    const summaries = await Promise.all(
+      records.map(async (record) => {
+        const listTasks = tasks.filter((task) => task.listId === record.id);
+        return {
+          ...record,
+          repairStatus: 'ok' as const,
+          taskCount: listTasks.length,
+          openCount: listTasks.filter((task) => task.status === 'todo').length,
+        };
+      }),
+    );
+    const repairItems = await this.listBrokenTaskLists();
+    return [...summaries, ...repairItems].sort(
+      (a, b) => a.order - b.order || b.updatedAt.localeCompare(a.updatedAt),
+    );
+  }
+
+  async rebuildTaskListIndex(): Promise<TaskListIndex> {
+    const index: TaskListIndex = {
+      schema: 'f5.task-list.index.v1',
+      lists: await this.listTaskLists(),
+      rebuiltAt: nowIso(),
+    };
+    await atomicWriteJson(
+      join(this.workspacePath, 'tasks', 'lists', 'index.json'),
+      taskListIndexSchema.parse(index),
+    );
+    return index;
+  }
+
+  private async listTaskListRecords(): Promise<TaskListRecord[]> {
+    await mkdir(join(this.workspacePath, 'tasks', 'lists'), { recursive: true });
+    const files = (await readdir(join(this.workspacePath, 'tasks', 'lists')))
+      .filter((file) => file.endsWith('.md'))
+      .filter((file) => taskListIdSchema.safeParse(basename(file, '.md')).success)
+      .sort();
+    const records = await Promise.all(
+      files.map(async (file) => {
+        try {
+          return await this.readTaskList(basename(file, '.md'));
+        } catch {
+          return undefined;
+        }
+      }),
+    );
+    return records.filter((record): record is TaskListRecord => Boolean(record));
+  }
+
+  private async listBrokenTaskLists(): Promise<TaskListSummary[]> {
+    const files = (await readdir(join(this.workspacePath, 'tasks', 'lists')))
+      .filter((file) => file.endsWith('.md'))
+      .filter((file) => taskListIdSchema.safeParse(basename(file, '.md')).success)
+      .sort();
+    const healthy = new Set((await this.listTaskListRecords()).map((record) => record.id));
+    return files
+      .map((file) => basename(file, '.md'))
+      .filter((id) => !healthy.has(id))
+      .map((id) => {
+        const timestamp = nowIso();
+        return {
+          schema: 'f5.task-list.v1' as const,
+          id: taskListIdSchema.parse(id),
+          title: basename(id),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          order: Number.MAX_SAFE_INTEGER,
+          repairStatus: 'needs_repair' as const,
+          taskCount: 0,
+          openCount: 0,
+        };
+      });
+  }
+
+  async createDocument(input: CreateDocumentInput): Promise<DocumentRecord> {
+    await this.ensureWorkspace();
+    const timestamp = nowIso();
+    const document: DocumentRecord = {
+      schema: 'f5.document.v1',
+      id: makeLocalId('doc'),
+      title: input.title?.trim() || 'Untitled document',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      body: input.body?.trimEnd() || '# Untitled document\n',
+    };
+    await this.writeDocument(document);
+    await this.rebuildDocumentIndex();
+    return document;
+  }
+
+  async updateDocument(input: UpdateDocumentInput): Promise<DocumentRecord> {
+    const current = await this.readDocument(input.documentId);
+    const next: DocumentRecord = {
+      ...current,
+      title: input.title.trim(),
+      body: input.body.trimEnd(),
+      updatedAt: nowIso(),
+    };
+    await this.writeDocument(next);
+    await this.rebuildDocumentIndex();
+    return next;
+  }
+
+  async deleteDocument(input: DeleteDocumentInput): Promise<void> {
+    const parsed = deleteDocumentInputSchema.parse(input);
+    const path = documentFilePath(this.workspacePath, parsed.documentId);
+    await ensureRealPathInside(resolve(this.workspacePath, 'documents'), path);
+    await rm(path, { force: true });
+    await this.rebuildDocumentIndex();
+  }
+
+  async readDocument(documentId: string): Promise<DocumentRecord> {
+    const raw = matter(await readFile(documentFilePath(this.workspacePath, documentId), 'utf8'));
+    return documentRecordSchema.parse({ ...raw.data, body: raw.content.trimEnd() });
+  }
+
+  async writeDocument(record: DocumentRecord): Promise<void> {
+    const parsed = documentRecordSchema.parse(record);
+    const { body, ...meta } = parsed;
+    await atomicWriteFile(
+      documentFilePath(this.workspacePath, parsed.id),
+      markdownWithFrontmatter(meta, body),
+    );
+  }
+
+  async listDocuments(): Promise<DocumentListItem[]> {
+    await mkdir(join(this.workspacePath, 'documents'), { recursive: true });
+    const files = (await readdir(join(this.workspacePath, 'documents')))
+      .filter((file) => file.endsWith('.md'))
+      .filter((file) => documentIdSchema.safeParse(basename(file, '.md')).success)
+      .sort();
+    const items = await Promise.all(files.map((file) => this.readDocumentListItem(file)));
+    return items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async rebuildDocumentIndex(): Promise<DocumentIndex> {
+    const index: DocumentIndex = {
+      schema: 'f5.document.index.v1',
+      documents: await this.listDocuments(),
+      rebuiltAt: nowIso(),
+    };
+    await atomicWriteJson(
+      join(this.workspacePath, 'documents', 'index.json'),
+      documentIndexSchema.parse(index),
+    );
+    return index;
+  }
+
+  documentPath(documentId: string): string {
+    return documentFilePath(this.workspacePath, documentId);
+  }
+
+  private async readDocumentListItem(file: string): Promise<DocumentListItem> {
+    const id = basename(file, '.md');
+    try {
+      const document = await this.readDocument(id);
+      return {
+        schema: document.schema,
+        id: document.id,
+        title: document.title,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
+        repairStatus: 'ok',
+      };
+    } catch {
+      const timestamp = nowIso();
+      return {
+        schema: 'f5.document.v1',
+        id: documentIdSchema.parse(id),
+        title: basename(id),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        repairStatus: 'needs_repair',
+      };
+    }
   }
 
   async createConversation(input: CreateConversationInput = {}): Promise<OpenConversation> {
@@ -434,6 +895,9 @@ export class WorkspaceStore {
       profile: await this.ensureProfile(),
       agents: await this.loadAgents(),
       conversations,
+      taskLists: await this.listTaskLists(),
+      tasks: await this.listTasks(),
+      documents: await this.listDocuments(),
       activeConversation,
     };
   }

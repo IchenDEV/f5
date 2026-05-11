@@ -3,6 +3,9 @@ import { z } from 'zod';
 export const conversationIdSchema = z.string().regex(/^conv_[a-f0-9]{24}$/);
 export const messageIdSchema = z.string().regex(/^msg_[a-f0-9]{24}$/);
 export const turnIdSchema = z.string().regex(/^turn_[a-f0-9]{24}$/);
+export const taskIdSchema = z.string().regex(/^task_[a-f0-9]{24}$/);
+export const taskListIdSchema = z.string().regex(/^tasklist_[a-f0-9]{24}$/);
+export const documentIdSchema = z.string().regex(/^doc_[a-f0-9]{24}$/);
 export const appearancePreferenceSchema = z.enum(['light', 'dark', 'system']);
 
 export const conversationMetaSchema = z.object({
@@ -103,6 +106,70 @@ export const profileSchema = z.object({
   iconTheme: appearancePreferenceSchema.default('system'),
 });
 
+export const taskRecordSchema = z.object({
+  schema: z.literal('f5.task.v1'),
+  id: taskIdSchema,
+  listId: taskListIdSchema,
+  agentId: z.string().min(1),
+  title: z.string().trim().min(1),
+  status: z.enum(['todo', 'done']),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  completedAt: z.union([z.literal(''), z.string().datetime()]),
+  order: z.number().int().nonnegative(),
+  body: z.string(),
+});
+
+export const taskListItemSchema = taskRecordSchema.extend({
+  repairStatus: z.enum(['ok', 'needs_repair']),
+});
+
+export const taskIndexSchema = z.object({
+  schema: z.literal('f5.task.index.v1'),
+  tasks: z.array(taskListItemSchema),
+  rebuiltAt: z.string().datetime(),
+});
+
+export const taskListRecordSchema = z.object({
+  schema: z.literal('f5.task-list.v1'),
+  id: taskListIdSchema,
+  title: z.string().trim().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  order: z.number().int().nonnegative(),
+});
+
+export const taskListSummarySchema = taskListRecordSchema.extend({
+  repairStatus: z.enum(['ok', 'needs_repair']),
+  taskCount: z.number().int().nonnegative(),
+  openCount: z.number().int().nonnegative(),
+});
+
+export const taskListIndexSchema = z.object({
+  schema: z.literal('f5.task-list.index.v1'),
+  lists: z.array(taskListSummarySchema),
+  rebuiltAt: z.string().datetime(),
+});
+
+export const documentRecordSchema = z.object({
+  schema: z.literal('f5.document.v1'),
+  id: documentIdSchema,
+  title: z.string().trim().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  body: z.string(),
+});
+
+export const documentListItemSchema = documentRecordSchema.omit({ body: true }).extend({
+  repairStatus: z.enum(['ok', 'needs_repair']),
+});
+
+export const documentIndexSchema = z.object({
+  schema: z.literal('f5.document.index.v1'),
+  documents: z.array(documentListItemSchema),
+  rebuiltAt: z.string().datetime(),
+});
+
 export const createConversationInputSchema = z.object({
   title: z.string().trim().optional(),
   agentId: z.string().optional(),
@@ -131,6 +198,53 @@ export const archiveConversationInputSchema = z.object({
 
 export const deleteConversationInputSchema = z.object({
   conversationId: conversationIdSchema,
+});
+
+export const createTaskInputSchema = z.object({
+  taskListId: taskListIdSchema.optional(),
+  agentId: z.string().trim().min(1).optional(),
+  title: z.string().trim().min(1),
+  body: z.string().optional().default(''),
+});
+
+export const updateTaskInputSchema = z.object({
+  taskId: taskIdSchema,
+  title: z.string().trim().min(1),
+  body: z.string(),
+  status: z.enum(['todo', 'done']),
+  agentId: z.string().trim().min(1).optional(),
+});
+
+export const deleteTaskInputSchema = z.object({
+  taskId: taskIdSchema,
+});
+
+export const createTaskListInputSchema = z.object({
+  title: z.string().trim().min(1),
+});
+
+export const updateTaskListInputSchema = z.object({
+  taskListId: taskListIdSchema,
+  title: z.string().trim().min(1),
+});
+
+export const deleteTaskListInputSchema = z.object({
+  taskListId: taskListIdSchema,
+});
+
+export const createDocumentInputSchema = z.object({
+  title: z.string().trim().optional(),
+  body: z.string().optional().default(''),
+});
+
+export const updateDocumentInputSchema = z.object({
+  documentId: documentIdSchema,
+  title: z.string().trim().min(1),
+  body: z.string(),
+});
+
+export const deleteDocumentInputSchema = z.object({
+  documentId: documentIdSchema,
 });
 
 export const cancelQueuedInputSchema = z.object({
