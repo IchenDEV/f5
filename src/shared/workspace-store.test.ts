@@ -13,9 +13,12 @@ import {
 import {
   conversationMetaSchema,
   deleteConversationInputSchema,
+  deleteDocumentCommentInputSchema,
   deleteDocumentInputSchema,
   deleteTaskListInputSchema,
   deleteTaskInputSchema,
+  documentCommentIndexSchema,
+  documentCommentRecordSchema,
   documentIndexSchema,
   documentRecordSchema,
   messageMetaSchema,
@@ -102,6 +105,11 @@ describe('WorkspaceStore', () => {
     expect(() =>
       deleteDocumentInputSchema.parse({
         documentId: 'doc_../../outside',
+      }),
+    ).toThrow();
+    expect(() =>
+      deleteDocumentCommentInputSchema.parse({
+        commentId: 'comment_../../outside',
       }),
     ).toThrow();
   });
@@ -276,6 +284,75 @@ describe('WorkspaceStore', () => {
 
     await restarted.deleteDocument({ documentId: document.id });
     expect(await restarted.listDocuments()).toHaveLength(0);
+  });
+
+  it('creates, updates, indexes, reloads, and deletes Markdown document comments', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-document-comment-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const document = await store.createDocument({
+      title: 'Commented doc',
+      body: '# Commented doc\n',
+    });
+    const comment = await store.createDocumentComment({
+      documentId: document.id,
+      anchorText: 'Commented doc',
+      anchorStart: 2,
+      anchorEnd: 15,
+      body: 'Clarify the opening paragraph.',
+    });
+    const updated = await store.updateDocumentComment({
+      commentId: comment.id,
+      body: 'Opening paragraph is clear now.',
+      status: 'resolved',
+    });
+
+    expect(updated.status).toBe('resolved');
+    expect(updated.authorName).toBe('You');
+
+    const commentPath = join(workspacePath, 'documents', 'comments', `${comment.id}.md`);
+    const rawComment = matter(await readFile(commentPath, 'utf8'));
+    documentCommentRecordSchema.parse({
+      ...rawComment.data,
+      body: rawComment.content.trimEnd(),
+    });
+    expect(rawComment.data.documentId).toBe(document.id);
+    expect(rawComment.data.anchorText).toBe('Commented doc');
+    expect(rawComment.data.anchorStart).toBe(2);
+    expect(rawComment.data.anchorEnd).toBe(15);
+    expect(rawComment.content).toContain('Opening paragraph is clear now.');
+
+    const commentIndex = documentCommentIndexSchema.parse(
+      JSON.parse(
+        await readFile(join(workspacePath, 'documents', 'comments', 'index.json'), 'utf8'),
+      ),
+    );
+    expect(commentIndex.comments.find((item) => item.id === comment.id)).toMatchObject({
+      documentId: document.id,
+      status: 'resolved',
+      anchorText: 'Commented doc',
+      anchorStart: 2,
+      anchorEnd: 15,
+      body: 'Opening paragraph is clear now.',
+    });
+
+    const restarted = new WorkspaceStore(workspacePath);
+    await restarted.ensureWorkspace();
+    expect((await restarted.listDocumentComments(document.id))[0]).toMatchObject({
+      id: comment.id,
+      status: 'resolved',
+    });
+
+    await restarted.deleteDocumentComment({ commentId: comment.id });
+    expect(await restarted.listDocumentComments(document.id)).toHaveLength(0);
+
+    const secondComment = await restarted.createDocumentComment({
+      documentId: document.id,
+      body: 'Remove with document.',
+    });
+    await restarted.deleteDocument({ documentId: document.id });
+    expect(
+      (await restarted.listDocumentComments()).some((item) => item.id === secondComment.id),
+    ).toBe(false);
   });
 
   it('marks invalid TODO and document frontmatter as needing repair', async () => {

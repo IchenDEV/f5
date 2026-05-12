@@ -4,10 +4,12 @@ import type {
   ArchiveConversationInput,
   CancelQueuedInput,
   CreateConversationInput,
+  CreateDocumentCommentInput,
   CreateDocumentInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteConversationInput,
+  DeleteDocumentCommentInput,
   DeleteDocumentInput,
   DeleteTaskListInput,
   DeleteTaskInput,
@@ -15,6 +17,7 @@ import type {
   RenameConversationInput,
   SendMessageInput,
   StarConversationInput,
+  UpdateDocumentCommentInput,
   UpdateDocumentInput,
   UpdateProfileInput,
   UpdateTaskListInput,
@@ -47,6 +50,9 @@ declare global {
       openDocument: (documentId: string) => Promise<DocumentRecord>;
       updateDocument: (input: UpdateDocumentInput) => Promise<DocumentRecord>;
       deleteDocument: (input: DeleteDocumentInput) => Promise<WorkspaceSnapshot>;
+      createDocumentComment: (input: CreateDocumentCommentInput) => Promise<WorkspaceSnapshot>;
+      updateDocumentComment: (input: UpdateDocumentCommentInput) => Promise<WorkspaceSnapshot>;
+      deleteDocumentComment: (input: DeleteDocumentCommentInput) => Promise<WorkspaceSnapshot>;
       updateProfile: (input: UpdateProfileInput) => Promise<WorkspaceSnapshot>;
       testAgentConnection: (agentId: string) => Promise<AgentConnectionTestResult>;
       cancelQueued: (input: CancelQueuedInput) => Promise<WorkspaceSnapshot>;

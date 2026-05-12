@@ -3,10 +3,12 @@ import type {
   ArchiveConversationInput,
   CancelQueuedInput,
   CreateConversationInput,
+  CreateDocumentCommentInput,
   CreateDocumentInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteConversationInput,
+  DeleteDocumentCommentInput,
   DeleteDocumentInput,
   DeleteTaskListInput,
   DeleteTaskInput,
@@ -14,6 +16,7 @@ import type {
   RenameConversationInput,
   SendMessageInput,
   StarConversationInput,
+  UpdateDocumentCommentInput,
   UpdateDocumentInput,
   UpdateProfileInput,
   UpdateTaskListInput,
@@ -60,6 +63,12 @@ contextBridge.exposeInMainWorld('f5', {
     ipcRenderer.invoke('document:update', input),
   deleteDocument: (input: DeleteDocumentInput): Promise<WorkspaceSnapshot> =>
     ipcRenderer.invoke('document:delete', input),
+  createDocumentComment: (input: CreateDocumentCommentInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('document-comment:create', input),
+  updateDocumentComment: (input: UpdateDocumentCommentInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('document-comment:update', input),
+  deleteDocumentComment: (input: DeleteDocumentCommentInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('document-comment:delete', input),
   updateProfile: (input: UpdateProfileInput): Promise<WorkspaceSnapshot> =>
     ipcRenderer.invoke('profile:update', input),
   testAgentConnection: (agentId: string): Promise<AgentConnectionTestResult> =>

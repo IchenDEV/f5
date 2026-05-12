@@ -6,6 +6,7 @@ export const turnIdSchema = z.string().regex(/^turn_[a-f0-9]{24}$/);
 export const taskIdSchema = z.string().regex(/^task_[a-f0-9]{24}$/);
 export const taskListIdSchema = z.string().regex(/^tasklist_[a-f0-9]{24}$/);
 export const documentIdSchema = z.string().regex(/^doc_[a-f0-9]{24}$/);
+export const documentCommentIdSchema = z.string().regex(/^comment_[a-f0-9]{24}$/);
 export const appearancePreferenceSchema = z.enum(['light', 'dark', 'system']);
 
 export const conversationMetaSchema = z.object({
@@ -170,6 +171,30 @@ export const documentIndexSchema = z.object({
   rebuiltAt: z.string().datetime(),
 });
 
+export const documentCommentRecordSchema = z.object({
+  schema: z.literal('f5.document-comment.v1'),
+  id: documentCommentIdSchema,
+  documentId: documentIdSchema,
+  anchorText: z.string().default(''),
+  anchorStart: z.number().int().nonnegative().default(0),
+  anchorEnd: z.number().int().nonnegative().default(0),
+  authorName: z.string().trim().min(1),
+  status: z.enum(['open', 'resolved']),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  body: z.string().trim().min(1),
+});
+
+export const documentCommentListItemSchema = documentCommentRecordSchema.extend({
+  repairStatus: z.enum(['ok', 'needs_repair']),
+});
+
+export const documentCommentIndexSchema = z.object({
+  schema: z.literal('f5.document-comment.index.v1'),
+  comments: z.array(documentCommentListItemSchema),
+  rebuiltAt: z.string().datetime(),
+});
+
 export const createConversationInputSchema = z.object({
   title: z.string().trim().optional(),
   agentId: z.string().optional(),
@@ -245,6 +270,24 @@ export const updateDocumentInputSchema = z.object({
 
 export const deleteDocumentInputSchema = z.object({
   documentId: documentIdSchema,
+});
+
+export const createDocumentCommentInputSchema = z.object({
+  documentId: documentIdSchema,
+  anchorText: z.string().trim().default(''),
+  anchorStart: z.number().int().nonnegative().default(0),
+  anchorEnd: z.number().int().nonnegative().default(0),
+  body: z.string().trim().min(1),
+});
+
+export const updateDocumentCommentInputSchema = z.object({
+  commentId: documentCommentIdSchema,
+  body: z.string().trim().min(1),
+  status: z.enum(['open', 'resolved']),
+});
+
+export const deleteDocumentCommentInputSchema = z.object({
+  commentId: documentCommentIdSchema,
 });
 
 export const cancelQueuedInputSchema = z.object({

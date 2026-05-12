@@ -1,4 +1,13 @@
-export type LocalIdPrefix = 'conv' | 'msg' | 'turn' | 'tool' | 'plan' | 'task' | 'tasklist' | 'doc';
+export type LocalIdPrefix =
+  | 'conv'
+  | 'msg'
+  | 'turn'
+  | 'tool'
+  | 'plan'
+  | 'task'
+  | 'tasklist'
+  | 'doc'
+  | 'comment';
 
 export type ConversationStatus = 'active' | 'archived' | 'needs_repair';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -15,6 +24,7 @@ export type AgentAvailability = 'available' | 'unavailable' | 'disabled';
 export type PlanStepStatus = 'completed' | 'active' | 'pending' | 'failed';
 export type ToolStatus = 'running' | 'queued' | 'completed' | 'failed';
 export type TaskStatus = 'todo' | 'done';
+export type DocumentCommentStatus = 'open' | 'resolved';
 export type RepairStatus = 'ok' | 'needs_repair';
 export type AppView =
   | 'workspace'
@@ -190,6 +200,30 @@ export interface DocumentIndex {
   rebuiltAt: string;
 }
 
+export interface DocumentCommentRecord {
+  schema: 'f5.document-comment.v1';
+  id: string;
+  documentId: string;
+  anchorText: string;
+  anchorStart: number;
+  anchorEnd: number;
+  authorName: string;
+  status: DocumentCommentStatus;
+  createdAt: string;
+  updatedAt: string;
+  body: string;
+}
+
+export interface DocumentCommentListItem extends DocumentCommentRecord {
+  repairStatus: RepairStatus;
+}
+
+export interface DocumentCommentIndex {
+  schema: 'f5.document-comment.index.v1';
+  comments: DocumentCommentListItem[];
+  rebuiltAt: string;
+}
+
 export interface ConversationListItem extends ConversationMeta {
   agentName: string;
   agentStatus: AgentAvailability;
@@ -286,6 +320,24 @@ export interface DeleteDocumentInput {
   documentId: string;
 }
 
+export interface CreateDocumentCommentInput {
+  documentId: string;
+  anchorText?: string;
+  anchorStart?: number;
+  anchorEnd?: number;
+  body: string;
+}
+
+export interface UpdateDocumentCommentInput {
+  commentId: string;
+  body: string;
+  status: DocumentCommentStatus;
+}
+
+export interface DeleteDocumentCommentInput {
+  commentId: string;
+}
+
 export interface CancelQueuedInput {
   conversationId: string;
   messageId: string;
@@ -315,6 +367,7 @@ export interface WorkspaceSnapshot {
   taskLists: TaskListSummary[];
   tasks: TaskListItem[];
   documents: DocumentListItem[];
+  documentComments: DocumentCommentListItem[];
   activeConversation?: OpenConversation;
 }
 

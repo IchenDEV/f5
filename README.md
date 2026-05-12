@@ -9,7 +9,7 @@ F5 is a local AI workspace for talking with coding agents, tracking their work, 
 - Multi-conversation workspace with a searchable conversation list.
 - Markdown-backed conversation storage under the local workspace folder.
 - Workspace-level TODO lists backed by local Markdown files, with task Agent assignment.
-- Workspace-level Markdown documents with automatic save, edit, and preview.
+- Workspace-level Markdown documents with automatic save, edit, preview, selected-text comments, Agent handoff, and preview highlights.
 - Real Codex CLI agent integration with queued prompts and visible agent progress.
 - Agent side panel for plan steps, tool activity, session details, and raw logs.
 - Conversation actions for star, rename, archive, delete, export, and showing file location.
@@ -68,6 +68,8 @@ Workspace resources are stored beside conversations:
 - `tasks/lists/index.json`: derived TODO list index.
 - `documents/*.md`: one Markdown document per file.
 - `documents/index.json`: derived document index.
+- `documents/comments/*.md`: one Markdown-backed document comment per file.
+- `documents/comments/index.json`: derived document comment index.
 
 Use `Help > Show Workspace Folder` in the app menu to open the workspace folder directly.
 

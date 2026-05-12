@@ -79,9 +79,11 @@ import type {
   AgentConnectionTestResult,
   AppView,
   ConversationListItem,
+  CreateDocumentCommentInput,
   CreateDocumentInput,
   CreateTaskListInput,
   CreateTaskInput,
+  DeleteDocumentCommentInput,
   DeleteDocumentInput,
   DeleteTaskListInput,
   DeleteTaskInput,
@@ -90,6 +92,7 @@ import type {
   OpenConversation,
   PlanStep,
   ToolActivity,
+  UpdateDocumentCommentInput,
   UpdateDocumentInput,
   UpdateProfileInput,
   UpdateTaskListInput,
@@ -237,9 +240,14 @@ function WorkspaceApp(): React.JSX.Element {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return snapshot.documents;
     return snapshot.documents.filter((document) =>
-      document.title.toLowerCase().includes(normalized),
+      `${document.title} ${snapshot.documentComments
+        .filter((comment) => comment.documentId === document.id)
+        .map((comment) => `${comment.anchorText} ${comment.body}`)
+        .join(' ')}`
+        .toLowerCase()
+        .includes(normalized),
     );
-  }, [query, snapshot.documents]);
+  }, [query, snapshot.documentComments, snapshot.documents]);
 
   async function updateSnapshot(
     action: Promise<WorkspaceSnapshot>,
@@ -329,11 +337,31 @@ function WorkspaceApp(): React.JSX.Element {
     await updateSnapshot(f5Api.deleteDocument(input));
   }
 
+  async function createDocumentComment(input: CreateDocumentCommentInput): Promise<void> {
+    await updateSnapshot(f5Api.createDocumentComment(input));
+  }
+
+  async function updateDocumentComment(input: UpdateDocumentCommentInput): Promise<void> {
+    await updateSnapshot(f5Api.updateDocumentComment(input));
+  }
+
+  async function deleteDocumentComment(input: DeleteDocumentCommentInput): Promise<void> {
+    await updateSnapshot(f5Api.deleteDocumentComment(input));
+  }
+
   async function sendPrompt(): Promise<void> {
     if (!active || !draft.trim()) return;
     const content = draft.trim();
     setDraft('');
     await updateSnapshot(f5Api.sendMessage({ conversationId: active.conversation.id, content }));
+  }
+
+  async function sendAgentPrompt(content: string): Promise<void> {
+    if (!active || !content.trim()) return;
+    const next = await updateSnapshot(
+      f5Api.sendMessage({ conversationId: active.conversation.id, content }),
+    );
+    if (next) setView('workspace');
   }
 
   return (
@@ -404,6 +432,7 @@ function WorkspaceApp(): React.JSX.Element {
                 taskLists={snapshot.taskLists}
                 tasks={filteredTasks}
                 documents={filteredDocuments}
+                documentComments={snapshot.documentComments}
                 query={query}
                 onQueryChange={setQuery}
                 draft={draft}
@@ -465,6 +494,10 @@ function WorkspaceApp(): React.JSX.Element {
                 onOpenDocument={openDocument}
                 onUpdateDocument={updateDocument}
                 onDeleteDocument={deleteDocument}
+                onCreateDocumentComment={createDocumentComment}
+                onUpdateDocumentComment={updateDocumentComment}
+                onDeleteDocumentComment={deleteDocumentComment}
+                onSendToAgent={sendAgentPrompt}
                 onRevealDocument={(documentId) =>
                   f5Api.revealDocument(documentId).then(() => undefined)
                 }
@@ -894,6 +927,7 @@ function WorkspaceSurface(props: {
   taskLists: WorkspaceSnapshot['taskLists'];
   tasks: WorkspaceSnapshot['tasks'];
   documents: WorkspaceSnapshot['documents'];
+  documentComments: WorkspaceSnapshot['documentComments'];
   query: string;
   onQueryChange: (value: string) => void;
   draft: string;
@@ -928,6 +962,10 @@ function WorkspaceSurface(props: {
   onOpenDocument: (documentId: string) => Promise<DocumentRecord>;
   onUpdateDocument: (input: UpdateDocumentInput) => Promise<DocumentRecord>;
   onDeleteDocument: (input: DeleteDocumentInput) => Promise<void>;
+  onCreateDocumentComment: (input: CreateDocumentCommentInput) => Promise<void>;
+  onUpdateDocumentComment: (input: UpdateDocumentCommentInput) => Promise<void>;
+  onDeleteDocumentComment: (input: DeleteDocumentCommentInput) => Promise<void>;
+  onSendToAgent: (content: string) => Promise<void>;
   onRevealDocument: (documentId: string) => Promise<void>;
 }): React.JSX.Element {
   const active = props.active;
@@ -971,6 +1009,7 @@ function WorkspaceSurface(props: {
     return (
       <DocumentsPage
         documents={props.documents}
+        comments={props.documentComments}
         query={props.query}
         onQueryChange={props.onQueryChange}
         onBack={props.onBack}
@@ -978,7 +1017,13 @@ function WorkspaceSurface(props: {
         onOpenDocument={props.onOpenDocument}
         onUpdateDocument={props.onUpdateDocument}
         onDeleteDocument={props.onDeleteDocument}
+        onCreateDocumentComment={props.onCreateDocumentComment}
+        onUpdateDocumentComment={props.onUpdateDocumentComment}
+        onDeleteDocumentComment={props.onDeleteDocumentComment}
         onRevealDocument={props.onRevealDocument}
+        onSendToAgent={props.onSendToAgent}
+        canSendToAgent={Boolean(active)}
+        agentName={active?.agent.name ?? 'Agent'}
       />
     );
   }

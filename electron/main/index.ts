@@ -380,6 +380,18 @@ ipcMain.handle('document:delete', async (_event, input) => {
   return engine.deleteDocument(input);
 });
 
+ipcMain.handle('document-comment:create', async (_event, input) => {
+  return engine.createDocumentComment(input);
+});
+
+ipcMain.handle('document-comment:update', async (_event, input) => {
+  return engine.updateDocumentComment(input);
+});
+
+ipcMain.handle('document-comment:delete', async (_event, input) => {
+  return engine.deleteDocumentComment(input);
+});
+
 ipcMain.handle('profile:update', async (_event, input) => {
   const snapshot = await engine.updateProfile(input);
   setAppIconPreference(snapshot.profile.iconTheme);

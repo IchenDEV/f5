@@ -95,6 +95,15 @@ The system SHALL store workspace Markdown documents under the local workspace `d
 - **AND** the file frontmatter uses schema `f5.document.v1`
 - **AND** the Markdown body stores the document content
 
+#### Scenario: Create document comment
+
+- **WHEN** the user creates a comment on a Markdown document
+- **THEN** the system writes `documents/comments/<commentId>.md`
+- **AND** the file frontmatter uses schema `f5.document-comment.v1`
+- **AND** `documentId` points at the commented document
+- **AND** selected text is stored in `anchorText`, `anchorStart`, and `anchorEnd` when present
+- **AND** the Markdown body stores the comment text
+
 ### Requirement: Workspace document schema
 
 The system SHALL validate document frontmatter against `f5.document.v1`.
@@ -113,15 +122,72 @@ The system SHALL validate document frontmatter against `f5.document.v1`.
 - **THEN** valid files appear in the Docs page
 - **AND** invalid frontmatter is represented as needing repair
 
+### Requirement: Workspace document comment schema
+
+The system SHALL validate document comment frontmatter against `f5.document-comment.v1`.
+
+| Field         | Type                | Rule                              |
+| ------------- | ------------------- | --------------------------------- |
+| `schema`      | string              | exactly `f5.document-comment.v1`  |
+| `id`          | string              | starts with `comment_`            |
+| `documentId`  | string              | starts with `doc_`                |
+| `anchorText`  | string              | selected Markdown or preview text |
+| `anchorStart` | integer             | selected text start offset        |
+| `anchorEnd`   | integer             | selected text end offset          |
+| `authorName`  | string              | non-empty                         |
+| `status`      | enum                | `open` or `resolved`              |
+| `createdAt`   | ISO datetime string | UTC                               |
+| `updatedAt`   | ISO datetime string | UTC                               |
+
+#### Scenario: Validate document comment
+
+- **WHEN** the app scans the `documents/comments/` directory
+- **THEN** valid comments appear in the matching Docs page comment panel
+- **AND** invalid frontmatter is represented as needing repair
+
 ### Requirement: Workspace document actions
 
-The system SHALL allow users to create, open, rename, edit, preview, automatically save, delete, and reveal Markdown documents.
+The system SHALL allow users to create, open, rename, edit, preview, automatically save, delete, reveal, comment on, and manually send Markdown documents to the active agent.
 
 #### Scenario: Edit document
 
 - **WHEN** the user changes a document title or Markdown body and pauses editing
 - **THEN** the matching Markdown file is updated atomically
 - **AND** the preview renders the current Markdown draft safely
+
+#### Scenario: Manage document comments
+
+- **WHEN** the user adds, edits, resolves, reopens, or deletes a document comment
+- **THEN** the matching comment Markdown file is updated atomically
+- **AND** the Docs page comment panel reflects the current document comments
+
+#### Scenario: Comment on selected document text
+
+- **WHEN** the user selects text in the Markdown editor or preview and adds a comment
+- **THEN** the comment stores the selected text and offsets in frontmatter
+- **AND** the comment panel shows the selected text with the comment
+
+#### Scenario: Locate selected-text comments
+
+- **WHEN** a document comment has selected text metadata
+- **THEN** the preview highlights the matching text
+- **AND** activating the comment location action selects the matching range in the editor
+
+#### Scenario: Send document to active agent
+
+- **GIVEN** a conversation is active
+- **WHEN** the user sends the current Markdown document to Agent
+- **THEN** the app sends a chat message containing the document title, id, and Markdown body
+- **AND** the workspace returns to the conversation view
+
+#### Scenario: Mention agent from document comment
+
+- **GIVEN** a conversation is active
+- **WHEN** the user sends an existing document comment to Agent
+- **THEN** the app sends a chat message containing the comment text, selected text metadata when present, and full document body
+- **WHEN** the user writes a new comment and chooses `@ Agent`
+- **THEN** the app saves the comment
+- **AND** sends the same comment and document context to the active agent
 
 ### Requirement: Workspace navigation entries
 

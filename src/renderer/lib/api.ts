@@ -2,16 +2,19 @@ import type {
   ArchiveConversationInput,
   CancelQueuedInput,
   CreateConversationInput,
+  CreateDocumentCommentInput,
   CreateDocumentInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteConversationInput,
+  DeleteDocumentCommentInput,
   DeleteDocumentInput,
   DeleteTaskListInput,
   DeleteTaskInput,
   RenameConversationInput,
   SendMessageInput,
   StarConversationInput,
+  UpdateDocumentCommentInput,
   UpdateDocumentInput,
   UpdateProfileInput,
   UpdateTaskListInput,
@@ -70,6 +73,15 @@ export const f5Api = {
   },
   deleteDocument(input: DeleteDocumentInput) {
     return window.f5.deleteDocument(input);
+  },
+  createDocumentComment(input: CreateDocumentCommentInput) {
+    return window.f5.createDocumentComment(input);
+  },
+  updateDocumentComment(input: UpdateDocumentCommentInput) {
+    return window.f5.updateDocumentComment(input);
+  },
+  deleteDocumentComment(input: DeleteDocumentCommentInput) {
+    return window.f5.deleteDocumentComment(input);
   },
   updateProfile(input: UpdateProfileInput) {
     return window.f5.updateProfile(input);

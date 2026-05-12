@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { DocumentsPage, MarkdownPreview, TasksPage } from './workspace-resources';
 import type {
   AgentConfig,
+  DocumentCommentListItem,
   DocumentListItem,
   DocumentRecord,
   TaskListItem,
@@ -90,6 +91,26 @@ function documentRecord(overrides: Partial<DocumentRecord> = {}): DocumentRecord
     createdAt,
     updatedAt,
     body: '# Project doc\n\nHello',
+    ...overrides,
+  };
+}
+
+function documentComment(
+  overrides: Partial<DocumentCommentListItem> = {},
+): DocumentCommentListItem {
+  return {
+    schema: 'f5.document-comment.v1',
+    id: 'comment_aaaaaaaaaaaaaaaaaaaaaaaa',
+    documentId: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+    anchorText: '',
+    anchorStart: 0,
+    anchorEnd: 0,
+    authorName: 'You',
+    status: 'open',
+    createdAt,
+    updatedAt,
+    body: 'Please clarify this section.',
+    repairStatus: 'ok',
     ...overrides,
   };
 }
@@ -484,6 +505,242 @@ describe('workspace resources UI', () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Delete' }));
     expect(deleteDocument).toHaveBeenCalledWith({ documentId: 'doc_bbbbbbbbbbbbbbbbbbbbbbbb' });
+  });
+
+  it('adds, resolves, edits, and deletes Markdown document comments', async () => {
+    const user = userEvent.setup();
+    const opened = documentRecord();
+    const createComment = vi.fn(async () => undefined);
+    const updateComment = vi.fn(async () => undefined);
+    const deleteComment = vi.fn(async () => undefined);
+    render(
+      <DocumentsPage
+        documents={[documentListItem()]}
+        comments={[documentComment()]}
+        query=""
+        onBack={vi.fn()}
+        onCreateDocument={vi.fn(async () => opened)}
+        onOpenDocument={vi.fn(async () => opened)}
+        onUpdateDocument={vi.fn(async () => opened)}
+        onDeleteDocument={vi.fn(async () => undefined)}
+        onRevealDocument={vi.fn(async () => undefined)}
+        onCreateDocumentComment={createComment}
+        onUpdateDocumentComment={updateComment}
+        onDeleteDocumentComment={deleteComment}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Project doc' }));
+    expect(await screen.findByText('Comments')).toBeInTheDocument();
+    expect(screen.getByText('Please clarify this section.')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('New document comment'), 'Looks good after edits.');
+    await user.click(screen.getByRole('button', { name: 'Add comment' }));
+    expect(createComment).toHaveBeenCalledWith({
+      documentId: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+      body: 'Looks good after edits.',
+    });
+
+    await user.click(screen.getByLabelText('Resolve comment'));
+    expect(updateComment).toHaveBeenCalledWith({
+      commentId: 'comment_aaaaaaaaaaaaaaaaaaaaaaaa',
+      body: 'Please clarify this section.',
+      status: 'resolved',
+    });
+
+    await user.click(screen.getByLabelText('Edit comment'));
+    await user.clear(screen.getByLabelText('Edit document comment'));
+    await user.type(screen.getByLabelText('Edit document comment'), 'Resolved after rewrite.');
+    await user.click(screen.getByRole('button', { name: 'Save comment' }));
+    expect(updateComment).toHaveBeenCalledWith({
+      commentId: 'comment_aaaaaaaaaaaaaaaaaaaaaaaa',
+      body: 'Resolved after rewrite.',
+      status: 'open',
+    });
+
+    await user.click(screen.getByLabelText('Delete comment'));
+    expect(deleteComment).toHaveBeenCalledWith({ commentId: 'comment_aaaaaaaaaaaaaaaaaaaaaaaa' });
+  });
+
+  it('creates Markdown document comments for selected editor text', async () => {
+    const user = userEvent.setup();
+    const opened = documentRecord();
+    const createComment = vi.fn(async () => undefined);
+    render(
+      <DocumentsPage
+        documents={[documentListItem()]}
+        comments={[]}
+        query=""
+        onBack={vi.fn()}
+        onCreateDocument={vi.fn(async () => opened)}
+        onOpenDocument={vi.fn(async () => opened)}
+        onUpdateDocument={vi.fn(async () => opened)}
+        onDeleteDocument={vi.fn(async () => undefined)}
+        onRevealDocument={vi.fn(async () => undefined)}
+        onCreateDocumentComment={createComment}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Project doc' }));
+    const editor = await screen.findByLabelText('Document markdown');
+    (editor as HTMLTextAreaElement).setSelectionRange(2, 13);
+    fireEvent.select(editor);
+    fireEvent.mouseUp(editor);
+
+    expect(screen.getByText('Selected text')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('New document comment'), 'Can this be clearer?');
+    await user.click(screen.getByRole('button', { name: 'Add comment' }));
+    expect(createComment).toHaveBeenCalledWith({
+      documentId: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+      anchorText: 'Project doc',
+      anchorStart: 2,
+      anchorEnd: 13,
+      body: 'Can this be clearer?',
+    });
+  });
+
+  it('creates Markdown document comments for selected preview text', async () => {
+    const user = userEvent.setup();
+    const opened = documentRecord();
+    const createComment = vi.fn(async () => undefined);
+    const getSelection = vi.spyOn(window, 'getSelection').mockReturnValue({
+      toString: () => 'Hello',
+    } as Selection);
+    render(
+      <DocumentsPage
+        documents={[documentListItem()]}
+        comments={[]}
+        query=""
+        onBack={vi.fn()}
+        onCreateDocument={vi.fn(async () => opened)}
+        onOpenDocument={vi.fn(async () => opened)}
+        onUpdateDocument={vi.fn(async () => opened)}
+        onDeleteDocument={vi.fn(async () => undefined)}
+        onRevealDocument={vi.fn(async () => undefined)}
+        onCreateDocumentComment={createComment}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Project doc' }));
+    fireEvent.mouseUp(await screen.findByText('Hello'));
+    await user.type(screen.getByLabelText('New document comment'), 'Preview note.');
+    await user.click(screen.getByRole('button', { name: 'Add comment' }));
+
+    expect(createComment).toHaveBeenCalledWith({
+      documentId: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+      anchorText: 'Hello',
+      anchorStart: 15,
+      anchorEnd: 20,
+      body: 'Preview note.',
+    });
+    getSelection.mockRestore();
+  });
+
+  it('shows anchored comments in the preview and locates them in the editor', async () => {
+    const user = userEvent.setup();
+    const opened = documentRecord();
+    render(
+      <DocumentsPage
+        documents={[documentListItem()]}
+        comments={[
+          documentComment({
+            anchorText: 'Hello',
+            anchorStart: 15,
+            anchorEnd: 20,
+          }),
+        ]}
+        query=""
+        onBack={vi.fn()}
+        onCreateDocument={vi.fn(async () => opened)}
+        onOpenDocument={vi.fn(async () => opened)}
+        onUpdateDocument={vi.fn(async () => opened)}
+        onDeleteDocument={vi.fn(async () => undefined)}
+        onRevealDocument={vi.fn(async () => undefined)}
+        onCreateDocumentComment={vi.fn(async () => undefined)}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Project doc' }));
+    expect(await screen.findByLabelText('Commented text: Hello')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Show comment anchor'));
+    const editor = screen.getByLabelText('Document markdown') as HTMLTextAreaElement;
+    expect(editor.selectionStart).toBe(15);
+    expect(editor.selectionEnd).toBe(20);
+  });
+
+  it('sends Markdown documents to the active Agent', async () => {
+    const user = userEvent.setup();
+    const opened = documentRecord();
+    const sendToAgent = vi.fn(async () => undefined);
+    render(
+      <DocumentsPage
+        documents={[documentListItem()]}
+        comments={[]}
+        query=""
+        agentName="Codex"
+        canSendToAgent
+        onBack={vi.fn()}
+        onCreateDocument={vi.fn(async () => opened)}
+        onOpenDocument={vi.fn(async () => opened)}
+        onUpdateDocument={vi.fn(async () => opened)}
+        onDeleteDocument={vi.fn(async () => undefined)}
+        onRevealDocument={vi.fn(async () => undefined)}
+        onSendToAgent={sendToAgent}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Project doc' }));
+    await user.click(screen.getByRole('button', { name: 'Send to Agent' }));
+
+    expect(sendToAgent).toHaveBeenCalledWith(expect.stringContaining('Document: Project doc'));
+    expect(sendToAgent).toHaveBeenCalledWith(expect.stringContaining('# Project doc'));
+  });
+
+  it('mentions the active Agent from document comments', async () => {
+    const user = userEvent.setup();
+    const opened = documentRecord();
+    const createComment = vi.fn(async () => undefined);
+    const sendToAgent = vi.fn(async () => undefined);
+    render(
+      <DocumentsPage
+        documents={[documentListItem()]}
+        comments={[
+          documentComment({
+            anchorText: 'Hello',
+            anchorStart: 15,
+            anchorEnd: 20,
+          }),
+        ]}
+        query=""
+        agentName="Codex"
+        canSendToAgent
+        onBack={vi.fn()}
+        onCreateDocument={vi.fn(async () => opened)}
+        onOpenDocument={vi.fn(async () => opened)}
+        onUpdateDocument={vi.fn(async () => opened)}
+        onDeleteDocument={vi.fn(async () => undefined)}
+        onRevealDocument={vi.fn(async () => undefined)}
+        onCreateDocumentComment={createComment}
+        onSendToAgent={sendToAgent}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Project doc' }));
+    await user.click(screen.getByLabelText('Send comment to Agent'));
+    expect(sendToAgent).toHaveBeenCalledWith(
+      expect.stringContaining('Please clarify this section.'),
+    );
+    expect(sendToAgent).toHaveBeenCalledWith(expect.stringContaining('Selected text'));
+
+    await user.type(screen.getByLabelText('New document comment'), 'Please rewrite this.');
+    await user.click(screen.getByRole('button', { name: '@ Agent' }));
+    expect(createComment).toHaveBeenCalledWith({
+      documentId: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+      body: 'Please rewrite this.',
+    });
+    expect(sendToAgent).toHaveBeenLastCalledWith(expect.stringContaining('Please rewrite this.'));
   });
 
   it('shows document empty state and empty Markdown preview', () => {

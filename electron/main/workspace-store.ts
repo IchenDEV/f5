@@ -18,10 +18,15 @@ import {
   conversationIdSchema,
   conversationMetaSchema,
   conversationStateSchema,
+  createDocumentCommentInputSchema,
+  deleteDocumentCommentInputSchema,
   deleteDocumentInputSchema,
   deleteConversationInputSchema,
   deleteTaskListInputSchema,
   deleteTaskInputSchema,
+  documentCommentIdSchema,
+  documentCommentIndexSchema,
+  documentCommentRecordSchema,
   documentIdSchema,
   documentIndexSchema,
   documentRecordSchema,
@@ -43,13 +48,18 @@ import type {
   ConversationMeta,
   ConversationState,
   CreateConversationInput,
+  CreateDocumentCommentInput,
   CreateDocumentInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteConversationInput,
+  DeleteDocumentCommentInput,
   DeleteDocumentInput,
   DeleteTaskListInput,
   DeleteTaskInput,
+  DocumentCommentIndex,
+  DocumentCommentListItem,
+  DocumentCommentRecord,
   DocumentIndex,
   DocumentListItem,
   DocumentRecord,
@@ -64,6 +74,7 @@ import type {
   TaskListRecord,
   TaskListSummary,
   TaskRecord,
+  UpdateDocumentCommentInput,
   UpdateDocumentInput,
   UpdateProfileInput,
   UpdateTaskListInput,
@@ -119,7 +130,7 @@ export const defaultAgentsFile: AgentsFile = {
 };
 
 export function makeLocalId(
-  prefix: 'conv' | 'msg' | 'turn' | 'tool' | 'plan' | 'task' | 'tasklist' | 'doc',
+  prefix: 'conv' | 'msg' | 'turn' | 'tool' | 'plan' | 'task' | 'tasklist' | 'doc' | 'comment',
 ): string {
   return `${prefix}_${randomUUID().replaceAll('-', '').slice(0, 24)}`;
 }
@@ -164,6 +175,16 @@ export function documentFilePath(workspacePath: string, documentId: string): str
   const target = resolve(root, `${parsed}.md`);
   if (target !== root && !target.startsWith(`${root}${sep}`)) {
     throw new Error(`Document path escapes workspace: ${documentId}`);
+  }
+  return target;
+}
+
+export function documentCommentFilePath(workspacePath: string, commentId: string): string {
+  const parsed = documentCommentIdSchema.parse(commentId);
+  const root = resolve(workspacePath, 'documents', 'comments');
+  const target = resolve(root, `${parsed}.md`);
+  if (target !== root && !target.startsWith(`${root}${sep}`)) {
+    throw new Error(`Document comment path escapes workspace: ${commentId}`);
   }
   return target;
 }
@@ -236,6 +257,7 @@ export class WorkspaceStore {
     await mkdir(join(this.workspacePath, 'tasks'), { recursive: true });
     await mkdir(join(this.workspacePath, 'tasks', 'lists'), { recursive: true });
     await mkdir(join(this.workspacePath, 'documents'), { recursive: true });
+    await mkdir(join(this.workspacePath, 'documents', 'comments'), { recursive: true });
     await this.ensureAgentsFile();
     await this.ensureProfile();
     await this.ensureDefaultTaskList();
@@ -243,6 +265,7 @@ export class WorkspaceStore {
     await this.rebuildTaskIndex();
     await this.rebuildTaskListIndex();
     await this.rebuildDocumentIndex();
+    await this.rebuildDocumentCommentIndex();
   }
 
   async resetWorkspace(): Promise<void> {
@@ -665,8 +688,15 @@ export class WorkspaceStore {
     const parsed = deleteDocumentInputSchema.parse(input);
     const path = documentFilePath(this.workspacePath, parsed.documentId);
     await ensureRealPathInside(resolve(this.workspacePath, 'documents'), path);
+    const comments = await this.listDocumentComments(parsed.documentId);
     await rm(path, { force: true });
+    await Promise.all(
+      comments.map((comment) =>
+        rm(documentCommentFilePath(this.workspacePath, comment.id), { force: true }),
+      ),
+    );
     await this.rebuildDocumentIndex();
+    await this.rebuildDocumentCommentIndex();
   }
 
   async readDocument(documentId: string): Promise<DocumentRecord> {
@@ -706,8 +736,117 @@ export class WorkspaceStore {
     return index;
   }
 
+  async createDocumentComment(input: CreateDocumentCommentInput): Promise<DocumentCommentRecord> {
+    const parsed = createDocumentCommentInputSchema.parse(input);
+    await this.ensureWorkspace();
+    await this.readDocument(parsed.documentId);
+    const profile = await this.ensureProfile();
+    const timestamp = nowIso();
+    const comment: DocumentCommentRecord = {
+      schema: 'f5.document-comment.v1',
+      id: makeLocalId('comment'),
+      documentId: parsed.documentId,
+      anchorText: parsed.anchorText,
+      anchorStart: parsed.anchorText ? parsed.anchorStart : 0,
+      anchorEnd: parsed.anchorText ? parsed.anchorEnd : 0,
+      authorName: profile.displayName,
+      status: 'open',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      body: parsed.body.trimEnd(),
+    };
+    await this.writeDocumentComment(comment);
+    await this.rebuildDocumentCommentIndex();
+    return comment;
+  }
+
+  async updateDocumentComment(input: UpdateDocumentCommentInput): Promise<DocumentCommentRecord> {
+    const current = await this.readDocumentComment(input.commentId);
+    const next: DocumentCommentRecord = {
+      ...current,
+      body: input.body.trimEnd(),
+      status: input.status,
+      updatedAt: nowIso(),
+    };
+    await this.writeDocumentComment(next);
+    await this.rebuildDocumentCommentIndex();
+    return next;
+  }
+
+  async deleteDocumentComment(input: DeleteDocumentCommentInput): Promise<void> {
+    const parsed = deleteDocumentCommentInputSchema.parse(input);
+    const path = documentCommentFilePath(this.workspacePath, parsed.commentId);
+    await ensureRealPathInside(resolve(this.workspacePath, 'documents', 'comments'), path);
+    await rm(path, { force: true });
+    await this.rebuildDocumentCommentIndex();
+  }
+
+  async readDocumentComment(commentId: string): Promise<DocumentCommentRecord> {
+    const raw = matter(
+      await readFile(documentCommentFilePath(this.workspacePath, commentId), 'utf8'),
+    );
+    return documentCommentRecordSchema.parse({ ...raw.data, body: raw.content.trimEnd() });
+  }
+
+  async writeDocumentComment(record: DocumentCommentRecord): Promise<void> {
+    const parsed = documentCommentRecordSchema.parse(record);
+    const { body, ...meta } = parsed;
+    await atomicWriteFile(
+      documentCommentFilePath(this.workspacePath, parsed.id),
+      markdownWithFrontmatter(meta, body),
+    );
+  }
+
+  async listDocumentComments(documentId?: string): Promise<DocumentCommentListItem[]> {
+    await mkdir(join(this.workspacePath, 'documents', 'comments'), { recursive: true });
+    const files = (await readdir(join(this.workspacePath, 'documents', 'comments')))
+      .filter((file) => file.endsWith('.md'))
+      .filter((file) => documentCommentIdSchema.safeParse(basename(file, '.md')).success)
+      .sort();
+    const items = await Promise.all(files.map((file) => this.readDocumentCommentListItem(file)));
+    return items
+      .filter((comment) => !documentId || comment.documentId === documentId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async rebuildDocumentCommentIndex(): Promise<DocumentCommentIndex> {
+    const index: DocumentCommentIndex = {
+      schema: 'f5.document-comment.index.v1',
+      comments: await this.listDocumentComments(),
+      rebuiltAt: nowIso(),
+    };
+    await atomicWriteJson(
+      join(this.workspacePath, 'documents', 'comments', 'index.json'),
+      documentCommentIndexSchema.parse(index),
+    );
+    return index;
+  }
+
   documentPath(documentId: string): string {
     return documentFilePath(this.workspacePath, documentId);
+  }
+
+  private async readDocumentCommentListItem(file: string): Promise<DocumentCommentListItem> {
+    const id = basename(file, '.md');
+    try {
+      return { ...(await this.readDocumentComment(id)), repairStatus: 'ok' };
+    } catch {
+      const timestamp = nowIso();
+      return {
+        schema: 'f5.document-comment.v1',
+        id: documentCommentIdSchema.parse(id),
+        documentId: 'doc_000000000000000000000000',
+        anchorText: '',
+        anchorStart: 0,
+        anchorEnd: 0,
+        authorName: 'Unknown',
+        status: 'open',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        body: 'This comment needs repair.',
+        repairStatus: 'needs_repair',
+      };
+    }
   }
 
   private async readDocumentListItem(file: string): Promise<DocumentListItem> {
@@ -898,6 +1037,7 @@ export class WorkspaceStore {
       taskLists: await this.listTaskLists(),
       tasks: await this.listTasks(),
       documents: await this.listDocuments(),
+      documentComments: await this.listDocumentComments(),
       activeConversation,
     };
   }

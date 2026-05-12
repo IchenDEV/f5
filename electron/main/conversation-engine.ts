@@ -6,10 +6,12 @@ import { join } from 'node:path';
 import {
   archiveConversationInputSchema,
   cancelQueuedInputSchema,
+  createDocumentCommentInputSchema,
   createTaskListInputSchema,
   createDocumentInputSchema,
   createConversationInputSchema,
   createTaskInputSchema,
+  deleteDocumentCommentInputSchema,
   deleteTaskListInputSchema,
   deleteDocumentInputSchema,
   deleteConversationInputSchema,
@@ -18,6 +20,7 @@ import {
   renameConversationInputSchema,
   sendMessageInputSchema,
   starConversationInputSchema,
+  updateDocumentCommentInputSchema,
   updateDocumentInputSchema,
   updateProfileInputSchema,
   updateTaskListInputSchema,
@@ -27,10 +30,12 @@ import type {
   AgentConnectionTestResult,
   ArchiveConversationInput,
   CancelQueuedInput,
+  CreateDocumentCommentInput,
   CreateConversationInput,
   CreateDocumentInput,
   CreateTaskListInput,
   CreateTaskInput,
+  DeleteDocumentCommentInput,
   DeleteConversationInput,
   DeleteDocumentInput,
   DeleteTaskListInput,
@@ -41,6 +46,7 @@ import type {
   RenameConversationInput,
   SendMessageInput,
   StarConversationInput,
+  UpdateDocumentCommentInput,
   UpdateDocumentInput,
   UpdateProfileInput,
   UpdateTaskListInput,
@@ -176,6 +182,24 @@ export class ConversationEngine {
   async deleteDocument(input: DeleteDocumentInput): Promise<WorkspaceSnapshot> {
     const parsed = deleteDocumentInputSchema.parse(input);
     await this.store.deleteDocument(parsed);
+    return this.emitSnapshot();
+  }
+
+  async createDocumentComment(input: CreateDocumentCommentInput): Promise<WorkspaceSnapshot> {
+    const parsed = createDocumentCommentInputSchema.parse(input);
+    await this.store.createDocumentComment(parsed);
+    return this.emitSnapshot();
+  }
+
+  async updateDocumentComment(input: UpdateDocumentCommentInput): Promise<WorkspaceSnapshot> {
+    const parsed = updateDocumentCommentInputSchema.parse(input);
+    await this.store.updateDocumentComment(parsed);
+    return this.emitSnapshot();
+  }
+
+  async deleteDocumentComment(input: DeleteDocumentCommentInput): Promise<WorkspaceSnapshot> {
+    const parsed = deleteDocumentCommentInputSchema.parse(input);
+    await this.store.deleteDocumentComment(parsed);
     return this.emitSnapshot();
   }
 
@@ -468,7 +492,6 @@ export class ConversationEngine {
     assistantMessage?: MessageRecord,
   ): Promise<void> {
     const state = await this.store.readState(conversationId);
-    state.activeTurnId = '';
     state.plan = [{ id: 'plan_1', title: 'Connect ACP adapter', status: 'failed' }];
     state.tools = [];
     await this.store.writeState(state);
@@ -490,6 +513,8 @@ export class ConversationEngine {
         body: message,
       });
     }
+    state.activeTurnId = '';
+    await this.store.writeState(state);
     this.activeTurns.delete(conversationId);
     await this.startNextQueued(conversationId);
     await this.emitSnapshot(conversationId);
