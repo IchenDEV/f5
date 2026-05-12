@@ -6,6 +6,7 @@
 - [x] 1.4 Add create, update, delete, open, and reveal methods.
 - [x] 1.5 Add TODO list metadata files, list index, and task membership.
 - [x] 1.6 Add task agent assignment metadata.
+- [x] 1.7 Add Markdown document comment metadata files and index.
 
 ## 2. Electron API
 
@@ -13,6 +14,7 @@
 - [x] 2.2 Add preload bridge methods.
 - [x] 2.3 Add renderer API wrappers and window typings.
 - [x] 2.4 Add IPC/API handlers for TODO list create, rename, and delete.
+- [x] 2.5 Add IPC/API handlers for document comment create, update, and delete.
 
 ## 3. UI
 
@@ -22,6 +24,10 @@
 - [x] 3.4 Add Workspace Overview counts.
 - [x] 3.5 Align TODO list UI with the chat page left-list and right-surface layout.
 - [x] 3.6 Add Agent picker and task row assignment display.
+- [x] 3.7 Add Docs comment panel with add, edit, resolve, reopen, and delete actions.
+- [x] 3.8 Add selected-text anchors for Markdown document comments.
+- [x] 3.9 Highlight selected-text comments in preview and add editor location action.
+- [x] 3.10 Add Docs send-to-Agent and comment @ Agent actions.
 
 ## 4. Verification
 

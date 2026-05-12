@@ -7,6 +7,8 @@ import { WorkspaceStore } from '../electron/main/workspace-store';
 import {
   conversationMetaSchema,
   conversationStateSchema,
+  documentCommentIndexSchema,
+  documentCommentRecordSchema,
   documentIndexSchema,
   documentRecordSchema,
   messageMetaSchema,
@@ -158,6 +160,41 @@ const documentIndex = documentIndexSchema.parse(
 if (!documentIndex.documents.some((item) => item.id === document.id)) {
   throw new Error('Document index does not include the smoke document');
 }
+const comment = await restartedStore.createDocumentComment({
+  documentId: document.id,
+  anchorText: 'Markdown body',
+  anchorStart: savedDocument.body.indexOf('Markdown body'),
+  anchorEnd: savedDocument.body.indexOf('Markdown body') + 'Markdown body'.length,
+  body: 'Smoke comment for Markdown doc.',
+});
+const updatedComment = await restartedStore.updateDocumentComment({
+  commentId: comment.id,
+  body: 'Smoke comment resolved.',
+  status: 'resolved',
+});
+const commentRaw = matter(
+  await readFile(join(workspacePath, 'documents', 'comments', `${comment.id}.md`), 'utf8'),
+);
+documentCommentRecordSchema.parse({
+  ...commentRaw.data,
+  body: commentRaw.content.trimEnd(),
+});
+if (updatedComment.status !== 'resolved' || commentRaw.data.status !== 'resolved') {
+  throw new Error('Document comment status did not persist');
+}
+if (commentRaw.data.anchorText !== 'Markdown body') {
+  throw new Error('Document comment anchor did not persist');
+}
+const commentIndex = documentCommentIndexSchema.parse(
+  JSON.parse(await readFile(join(workspacePath, 'documents', 'comments', 'index.json'), 'utf8')),
+);
+if (
+  !commentIndex.comments.some(
+    (item) => item.id === comment.id && item.anchorText === 'Markdown body',
+  )
+) {
+  throw new Error('Document comment index does not include the smoke comment');
+}
 
 console.log(
   JSON.stringify(
@@ -171,6 +208,7 @@ console.log(
       taskId: task.id,
       taskListId: task.listId,
       documentId: document.id,
+      commentId: comment.id,
     },
     null,
     2,
