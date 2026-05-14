@@ -10,6 +10,7 @@ import {
   createTaskListInputSchema,
   createDocumentInputSchema,
   createConversationInputSchema,
+  createTaskConversationInputSchema,
   createTaskInputSchema,
   deleteDocumentCommentInputSchema,
   deleteTaskListInputSchema,
@@ -33,6 +34,7 @@ import type {
   CreateDocumentCommentInput,
   CreateConversationInput,
   CreateDocumentInput,
+  CreateTaskConversationInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteDocumentCommentInput,
@@ -53,6 +55,7 @@ import type {
   UpdateTaskInput,
   WorkspaceSnapshot,
 } from '../../src/shared/types';
+import { HUMAN_ASSIGNEE_ID } from '../../src/shared/types';
 import { AcpStdioClient } from './acp-client';
 import { makeLocalId, nowIso, WorkspaceStore } from './workspace-store';
 
@@ -88,6 +91,30 @@ export class ConversationEngine {
   async createConversation(input: CreateConversationInput): Promise<WorkspaceSnapshot> {
     const parsed = createConversationInputSchema.parse(input);
     const conversation = await this.store.createConversation(parsed);
+    if (parsed.firstPrompt?.trim()) {
+      await this.sendMessage({
+        conversationId: conversation.conversation.id,
+        content: parsed.firstPrompt,
+      });
+    }
+    return this.emitSnapshot(conversation.conversation.id);
+  }
+
+  async createTaskConversation(input: CreateTaskConversationInput): Promise<WorkspaceSnapshot> {
+    const parsed = createTaskConversationInputSchema.parse(input);
+    const task = await this.store.createTask({
+      title: parsed.title,
+      body: parsed.body,
+      agentId: parsed.agentId,
+      taskListId: parsed.taskListId,
+    });
+    const defaultAgent = await this.store.getDefaultAgent();
+    const agentId = task.agentId === HUMAN_ASSIGNEE_ID ? defaultAgent.id : task.agentId;
+    const conversation = await this.store.createConversation({
+      title: task.title,
+      agentId,
+      taskId: task.id,
+    });
     if (parsed.firstPrompt?.trim()) {
       await this.sendMessage({
         conversationId: conversation.conversation.id,

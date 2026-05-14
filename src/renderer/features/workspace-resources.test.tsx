@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { DocumentsPage, MarkdownPreview, TasksPage } from './workspace-resources';
+import { HUMAN_ASSIGNEE_ID } from '../../shared/types';
 import type {
   AgentConfig,
   DocumentCommentListItem,
@@ -75,6 +76,7 @@ function documentListItem(overrides: Partial<DocumentListItem> = {}): DocumentLi
   return {
     schema: 'f5.document.v1',
     id: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+    taskId: '',
     title: 'Project doc',
     createdAt,
     updatedAt,
@@ -87,6 +89,7 @@ function documentRecord(overrides: Partial<DocumentRecord> = {}): DocumentRecord
   return {
     schema: 'f5.document.v1',
     id: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+    taskId: '',
     title: 'Project doc',
     createdAt,
     updatedAt,
@@ -170,6 +173,40 @@ describe('workspace resources UI', () => {
     await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.queryByText('Open task')).not.toBeInTheDocument();
     expect(screen.getByText('Finished task')).toBeInTheDocument();
+  });
+
+  it('creates TODO items assigned to the human profile', async () => {
+    const user = userEvent.setup();
+    const createTask = vi.fn(async () => undefined);
+    render(
+      <TasksPage
+        taskLists={[taskList()]}
+        tasks={[]}
+        agents={agents}
+        defaultAgentId="codex-cli-real"
+        profileDisplayName="idevlab"
+        query=""
+        onBack={vi.fn()}
+        onCreateTaskList={vi.fn(async () => undefined)}
+        onUpdateTaskList={vi.fn(async () => undefined)}
+        onDeleteTaskList={vi.fn(async () => undefined)}
+        onCreateTask={createTask}
+        onUpdateTask={vi.fn(async () => undefined)}
+        onDeleteTask={vi.fn(async () => undefined)}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('Task assignee'));
+    await user.click(screen.getByRole('option', { name: 'idevlab' }));
+    await user.type(screen.getByLabelText('Task title'), 'Human review');
+    await user.click(screen.getByRole('button', { name: 'Add task' }));
+
+    expect(createTask).toHaveBeenCalledWith({
+      taskListId: defaultTaskListId,
+      title: 'Human review',
+      body: '',
+      agentId: HUMAN_ASSIGNEE_ID,
+    });
   });
 
   it('edits, cancels, and deletes TODO items', async () => {
@@ -342,9 +379,9 @@ describe('workspace resources UI', () => {
       />,
     );
 
-    expect(screen.getByText('Agent: Codex')).toBeInTheDocument();
+    expect(screen.getByText('Assignee: Codex')).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText('Task agent'));
+    await user.click(screen.getByLabelText('Task assignee'));
     await user.click(await screen.findByRole('option', { name: 'Claude Code' }));
     await user.type(screen.getByLabelText('Task title'), 'Agent task');
     await user.click(screen.getByRole('button', { name: 'Add task' }));
@@ -356,7 +393,7 @@ describe('workspace resources UI', () => {
     });
 
     await user.click(screen.getByLabelText('Edit task'));
-    await user.click(screen.getByLabelText('Edit task agent'));
+    await user.click(screen.getByLabelText('Edit task assignee'));
     await user.click(await screen.findByRole('option', { name: 'Claude Code' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(updateTask).toHaveBeenCalledWith({
@@ -408,6 +445,31 @@ describe('workspace resources UI', () => {
         }),
       { timeout: 1500 },
     );
+  });
+
+  it('shows document task source markers', () => {
+    render(
+      <DocumentsPage
+        documents={[
+          documentListItem({ taskId: 'task_aaaaaaaaaaaaaaaaaaaaaaaa' }),
+          documentListItem({
+            id: 'doc_bbbbbbbbbbbbbbbbbbbbbbbb',
+            title: 'Unlinked doc',
+          }),
+        ]}
+        tasks={[task()]}
+        query=""
+        onBack={vi.fn()}
+        onCreateDocument={vi.fn(async () => documentRecord())}
+        onOpenDocument={vi.fn(async () => documentRecord())}
+        onUpdateDocument={vi.fn(async () => documentRecord())}
+        onDeleteDocument={vi.fn(async () => undefined)}
+        onRevealDocument={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(screen.getByText('Open task')).toBeInTheDocument();
+    expect(screen.getByText('Unlinked')).toBeInTheDocument();
   });
 
   it('autosaves Markdown document drafts after typing pauses', async () => {

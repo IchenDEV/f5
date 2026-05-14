@@ -6,6 +6,7 @@ import type {
   CreateConversationInput,
   CreateDocumentCommentInput,
   CreateDocumentInput,
+  CreateTaskConversationInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteConversationInput,
@@ -32,6 +33,7 @@ declare global {
       platform: NodeJS.Platform;
       initializeWorkspace: (activeConversationId?: string) => Promise<WorkspaceSnapshot>;
       createConversation: (input: CreateConversationInput) => Promise<WorkspaceSnapshot>;
+      createTaskConversation: (input: CreateTaskConversationInput) => Promise<WorkspaceSnapshot>;
       openConversation: (
         conversationId: string,
       ) => Promise<WorkspaceSnapshot['activeConversation']>;

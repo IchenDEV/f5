@@ -372,12 +372,13 @@ export class WorkspaceStore {
     const list = input.taskListId
       ? await this.readTaskList(input.taskListId)
       : await this.ensureDefaultTaskList();
-    const agent = input.agentId ? await this.getAgent(input.agentId) : await this.getDefaultAgent();
+    const defaultAgent = await this.getDefaultAgent();
+    const assigneeId = input.agentId?.trim() || defaultAgent.id;
     const task: TaskRecord = {
       schema: 'f5.task.v1',
       id: makeLocalId('task'),
       listId: list.id,
-      agentId: agent.id,
+      agentId: assigneeId,
       title: input.title.trim(),
       status: 'todo',
       createdAt: timestamp,
@@ -396,10 +397,10 @@ export class WorkspaceStore {
     const current = await this.readTask(input.taskId);
     const timestamp = nowIso();
     const completedAt = input.status === 'done' ? current.completedAt || timestamp : '';
-    const agent = input.agentId ? await this.getAgent(input.agentId) : undefined;
+    const assigneeId = input.agentId?.trim() || current.agentId;
     const next: TaskRecord = {
       ...current,
-      agentId: agent?.id ?? current.agentId,
+      agentId: assigneeId,
       title: input.title.trim(),
       body: input.body.trimEnd(),
       status: input.status,
@@ -661,6 +662,7 @@ export class WorkspaceStore {
     const document: DocumentRecord = {
       schema: 'f5.document.v1',
       id: makeLocalId('doc'),
+      taskId: input.taskId ?? '',
       title: input.title?.trim() || 'Untitled document',
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -856,6 +858,7 @@ export class WorkspaceStore {
       return {
         schema: document.schema,
         id: document.id,
+        taskId: document.taskId,
         title: document.title,
         createdAt: document.createdAt,
         updatedAt: document.updatedAt,
@@ -866,6 +869,7 @@ export class WorkspaceStore {
       return {
         schema: 'f5.document.v1',
         id: documentIdSchema.parse(id),
+        taskId: '',
         title: basename(id),
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -883,6 +887,7 @@ export class WorkspaceStore {
     const meta: ConversationMeta = {
       schema: 'f5.conversation.v1',
       id,
+      taskId: input.taskId ?? '',
       title,
       agentId: agent.id,
       status: 'active',
@@ -994,6 +999,7 @@ export class WorkspaceStore {
           return {
             schema: 'f5.conversation.v1' as const,
             id,
+            taskId: '',
             title: basename(id),
             agentId: defaultAgent.id,
             status: 'needs_repair' as const,

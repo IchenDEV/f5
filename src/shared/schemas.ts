@@ -12,6 +12,7 @@ export const appearancePreferenceSchema = z.enum(['light', 'dark', 'system']);
 export const conversationMetaSchema = z.object({
   schema: z.literal('f5.conversation.v1'),
   id: conversationIdSchema,
+  taskId: z.union([z.literal(''), taskIdSchema]).default(''),
   title: z.string().min(1),
   agentId: z.string().min(1),
   status: z.enum(['active', 'archived', 'needs_repair']),
@@ -155,6 +156,7 @@ export const taskListIndexSchema = z.object({
 export const documentRecordSchema = z.object({
   schema: z.literal('f5.document.v1'),
   id: documentIdSchema,
+  taskId: z.union([z.literal(''), taskIdSchema]).default(''),
   title: z.string().trim().min(1),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -198,6 +200,15 @@ export const documentCommentIndexSchema = z.object({
 export const createConversationInputSchema = z.object({
   title: z.string().trim().optional(),
   agentId: z.string().optional(),
+  taskId: taskIdSchema.optional(),
+  firstPrompt: z.string().trim().optional(),
+});
+
+export const createTaskConversationInputSchema = z.object({
+  title: z.string().trim().min(1),
+  body: z.string().optional().default(''),
+  agentId: z.string().trim().min(1).optional(),
+  taskListId: taskListIdSchema.optional(),
   firstPrompt: z.string().trim().optional(),
 });
 
@@ -260,6 +271,7 @@ export const deleteTaskListInputSchema = z.object({
 export const createDocumentInputSchema = z.object({
   title: z.string().trim().optional(),
   body: z.string().optional().default(''),
+  taskId: taskIdSchema.optional(),
 });
 
 export const updateDocumentInputSchema = z.object({
