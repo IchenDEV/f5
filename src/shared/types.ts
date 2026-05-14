@@ -26,19 +26,22 @@ export type ToolStatus = 'running' | 'queued' | 'completed' | 'failed';
 export type TaskStatus = 'todo' | 'done';
 export type DocumentCommentStatus = 'open' | 'resolved';
 export type RepairStatus = 'ok' | 'needs_repair';
+export const HUMAN_ASSIGNEE_ID = 'human-user';
 export type AppView =
   | 'workspace'
+  | 'task-workbench'
+  | 'board'
   | 'tasks'
   | 'documents'
   | 'user-profile'
   | 'agent-profile'
-  | 'overview'
   | 'agents';
 export type AppearancePreference = 'light' | 'dark' | 'system';
 
 export interface ConversationMeta {
   schema: 'f5.conversation.v1';
   id: string;
+  taskId: string;
   title: string;
   agentId: string;
   status: ConversationStatus;
@@ -179,6 +182,7 @@ export interface TaskListIndex {
 export interface DocumentRecord {
   schema: 'f5.document.v1';
   id: string;
+  taskId: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -188,6 +192,7 @@ export interface DocumentRecord {
 export interface DocumentListItem {
   schema: 'f5.document.v1';
   id: string;
+  taskId: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -246,6 +251,15 @@ export interface OpenConversation {
 export interface CreateConversationInput {
   title?: string;
   agentId?: string;
+  taskId?: string;
+  firstPrompt?: string;
+}
+
+export interface CreateTaskConversationInput {
+  title: string;
+  body?: string;
+  agentId?: string;
+  taskListId?: string;
   firstPrompt?: string;
 }
 
@@ -308,6 +322,7 @@ export interface DeleteTaskListInput {
 export interface CreateDocumentInput {
   title?: string;
   body?: string;
+  taskId?: string;
 }
 
 export interface UpdateDocumentInput {

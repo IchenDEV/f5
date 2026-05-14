@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { HUMAN_ASSIGNEE_ID } from '../../shared/types';
 import type {
   AgentConfig,
   CreateDocumentCommentInput,
@@ -252,6 +253,7 @@ function TasksPage({
   tasks,
   agents = [],
   defaultAgentId = '',
+  profileDisplayName = 'You',
   query,
   onQueryChange,
   onBack,
@@ -266,6 +268,7 @@ function TasksPage({
   tasks: TaskListItem[];
   agents?: AgentConfig[];
   defaultAgentId?: string;
+  profileDisplayName?: string;
   query: string;
   onQueryChange?: (value: string) => void;
   onBack: () => void;
@@ -278,7 +281,7 @@ function TasksPage({
 }): React.JSX.Element {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [agentId, setAgentId] = useState(defaultAgentId || agents[0]?.id || '');
+  const [agentId, setAgentId] = useState(defaultAgentId || agents[0]?.id || HUMAN_ASSIGNEE_ID);
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [activeListId, setActiveListId] = useState(taskLists[0]?.id ?? '');
   const [deleteTarget, setDeleteTarget] = useState<TaskListItem | null>(null);
@@ -468,28 +471,27 @@ function TasksPage({
                 New task
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {agents.length > 0 ? (
-                  <Select
-                    value={agentId || defaultAgentId || agents[0]?.id}
-                    onValueChange={setAgentId}
+                <Select
+                  value={agentId || defaultAgentId || agents[0]?.id || HUMAN_ASSIGNEE_ID}
+                  onValueChange={setAgentId}
+                >
+                  <SelectTrigger
+                    aria-label="Task assignee"
+                    size="sm"
+                    className="liquid-glass-control w-40"
                   >
-                    <SelectTrigger
-                      aria-label="Task agent"
-                      size="sm"
-                      className="liquid-glass-control w-40"
-                    >
-                      <UserRound className="size-3.5" />
-                      <SelectValue placeholder="Agent" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {agents.map((agent) => (
-                        <SelectItem key={agent.id} value={agent.id}>
-                          {agent.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
+                    <UserRound className="size-3.5" />
+                    <SelectValue placeholder="Assignee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={HUMAN_ASSIGNEE_ID}>{profileDisplayName}</SelectItem>
+                    {agents.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <div className="flex gap-2">
                   {(['all', 'todo', 'done'] as TaskFilter[]).map((value) => (
                     <Button
@@ -534,6 +536,7 @@ function TasksPage({
                 task={task}
                 agents={agents}
                 defaultAgentId={defaultAgentId}
+                profileDisplayName={profileDisplayName}
                 busy={busy}
                 onUpdate={onUpdateTask}
                 onDelete={() => setDeleteTarget(task)}
@@ -576,6 +579,7 @@ function TaskRow({
   task,
   agents,
   defaultAgentId,
+  profileDisplayName,
   busy,
   onUpdate,
   onDelete,
@@ -583,6 +587,7 @@ function TaskRow({
   task: TaskListItem;
   agents: AgentConfig[];
   defaultAgentId: string;
+  profileDisplayName: string;
   busy: boolean;
   onUpdate: (input: UpdateTaskInput) => Promise<void>;
   onDelete: () => void;
@@ -590,9 +595,9 @@ function TaskRow({
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [body, setBody] = useState(task.body);
-  const initialAgentId = task.agentId || defaultAgentId || agents[0]?.id || '';
+  const initialAgentId = task.agentId || defaultAgentId || agents[0]?.id || HUMAN_ASSIGNEE_ID;
   const [agentId, setAgentId] = useState(initialAgentId);
-  const agentName = agentLabel(agents, initialAgentId);
+  const assigneeName = assigneeLabel(agents, profileDisplayName, initialAgentId);
 
   async function save(nextStatus = task.status): Promise<void> {
     if (!title.trim()) return;
@@ -635,21 +640,20 @@ function TaskRow({
                 className="min-h-24 resize-none"
                 onChange={(event) => setBody(event.target.value)}
               />
-              {agents.length > 0 ? (
-                <Select value={agentId} onValueChange={setAgentId}>
-                  <SelectTrigger aria-label="Edit task agent" className="w-52">
-                    <UserRound className="size-4" />
-                    <SelectValue placeholder="Agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {agents.map((agent) => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        {agent.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : null}
+              <Select value={agentId} onValueChange={setAgentId}>
+                <SelectTrigger aria-label="Edit task assignee" className="w-52">
+                  <UserRound className="size-4" />
+                  <SelectValue placeholder="Assignee" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={HUMAN_ASSIGNEE_ID}>{profileDisplayName}</SelectItem>
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <div className="flex gap-2">
                 <Button size="sm" disabled={!title.trim() || busy} onClick={() => void save()}>
                   <Save data-icon="inline-start" />
@@ -680,7 +684,7 @@ function TaskRow({
               ) : null}
               <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs text-muted-foreground">
                 <UserRound className="size-3" />
-                Agent: {agentName}
+                Assignee: {assigneeName}
               </div>
             </>
           )}
@@ -707,8 +711,13 @@ function TaskRow({
   );
 }
 
-function agentLabel(agents: AgentConfig[], agentId: string): string {
-  return agents.find((agent) => agent.id === agentId)?.name ?? (agentId || 'Unassigned');
+function assigneeLabel(
+  agents: AgentConfig[],
+  profileDisplayName: string,
+  assigneeId: string,
+): string {
+  if (assigneeId === HUMAN_ASSIGNEE_ID) return profileDisplayName;
+  return agents.find((agent) => agent.id === assigneeId)?.name ?? (assigneeId || 'Unassigned');
 }
 
 /**
@@ -717,6 +726,7 @@ function agentLabel(agents: AgentConfig[], agentId: string): string {
 function DocumentsPage({
   documents,
   comments = [],
+  tasks = [],
   query,
   onQueryChange,
   onBack,
@@ -734,6 +744,7 @@ function DocumentsPage({
 }: {
   documents: DocumentListItem[];
   comments?: DocumentCommentListItem[];
+  tasks?: TaskListItem[];
   query: string;
   onQueryChange?: (value: string) => void;
   onBack: () => void;
@@ -762,6 +773,7 @@ function DocumentsPage({
     () => (selected ? comments.filter((comment) => comment.documentId === selected.id) : []),
     [comments, selected],
   );
+  const taskNames = useMemo(() => new Map(tasks.map((task) => [task.id, task.title])), [tasks]);
   const dirty = Boolean(selected && (selected.title !== title || selected.body !== body));
   const latestDraftRef = useRef({
     documentId: '',
@@ -1006,31 +1018,13 @@ function DocumentsPage({
               <h3 className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Documents</h3>
               <div className="flex flex-col gap-0.5">
                 {documents.map((document) => (
-                  <button
+                  <DocumentListButton
                     key={document.id}
-                    aria-label={document.title}
-                    className={cn(
-                      'group flex min-h-14 w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm transition hover:bg-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-                      selected?.id === document.id &&
-                        'liquid-glass-control text-accent-foreground ring-1 ring-inset ring-border',
-                    )}
-                    onClick={() => void openDocument(document.id)}
-                  >
-                    <span
-                      className={cn(
-                        'h-8 w-1 rounded-full bg-transparent',
-                        selected?.id === document.id && 'bg-[color:var(--status-active)]',
-                      )}
-                    />
-                    <FileText className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{document.title}</span>
-                      <span className="mt-1 block text-xs text-muted-foreground">Markdown</span>
-                    </span>
-                    {document.repairStatus === 'needs_repair' ? (
-                      <Badge variant="destructive">Repair</Badge>
-                    ) : null}
-                  </button>
+                    document={document}
+                    taskLabel={taskNames.get(document.taskId) ?? 'Unlinked'}
+                    selected={selected?.id === document.id}
+                    onOpen={() => void openDocument(document.id)}
+                  />
                 ))}
                 {documents.length === 0 ? (
                   <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
@@ -1056,6 +1050,10 @@ function DocumentsPage({
                 />
                 <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                   <span>Markdown document</span>
+                  <span className="size-1 rounded-full bg-muted-foreground/60" />
+                  <span>
+                    {selected.taskId ? (taskNames.get(selected.taskId) ?? 'Task') : 'Unlinked'}
+                  </span>
                   <span className="size-1 rounded-full bg-muted-foreground/60" />
                   <span>
                     {selectedComments.length}{' '}
@@ -1470,6 +1468,44 @@ function DocumentCommentRow({
         </Badge>
       ) : null}
     </article>
+  );
+}
+
+function DocumentListButton({
+  document,
+  taskLabel,
+  selected,
+  onOpen,
+}: {
+  document: DocumentListItem;
+  taskLabel: string;
+  selected: boolean;
+  onOpen: () => void;
+}): React.JSX.Element {
+  return (
+    <button
+      aria-label={document.title}
+      className={cn(
+        'group flex min-h-14 w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm transition hover:bg-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+        selected && 'liquid-glass-control text-accent-foreground ring-1 ring-inset ring-border',
+      )}
+      onClick={onOpen}
+    >
+      <span
+        className={cn(
+          'h-8 w-1 rounded-full bg-transparent',
+          selected && 'bg-[color:var(--status-active)]',
+        )}
+      />
+      <FileText className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium">{document.title}</span>
+        <span className="mt-1 block truncate text-xs text-muted-foreground">{taskLabel}</span>
+      </span>
+      {document.repairStatus === 'needs_repair' ? (
+        <Badge variant="destructive">Repair</Badge>
+      ) : null}
+    </button>
   );
 }
 

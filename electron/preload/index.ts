@@ -5,6 +5,7 @@ import type {
   CreateConversationInput,
   CreateDocumentCommentInput,
   CreateDocumentInput,
+  CreateTaskConversationInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteConversationInput,
@@ -31,6 +32,8 @@ contextBridge.exposeInMainWorld('f5', {
     ipcRenderer.invoke('workspace:initialize', activeConversationId),
   createConversation: (input: CreateConversationInput): Promise<WorkspaceSnapshot> =>
     ipcRenderer.invoke('conversation:create', input),
+  createTaskConversation: (input: CreateTaskConversationInput): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke('task-conversation:create', input),
   openConversation: (conversationId: string) =>
     ipcRenderer.invoke('conversation:open', conversationId),
   sendMessage: (input: SendMessageInput): Promise<WorkspaceSnapshot> =>

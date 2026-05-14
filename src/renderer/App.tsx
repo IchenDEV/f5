@@ -71,9 +71,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import f5LogoDarkUrl from '../../resources/icon-dark.png';
 import f5LogoUrl from '../../resources/icon.png';
 import { fallbackSnapshot } from '@/data/fallback';
+import { TaskWorkbenchPage } from '@/features/task-workbench';
+import { WorkspaceBoardPage } from '@/features/workspace-board';
 import { DocumentsPage, TasksPage } from '@/features/workspace-resources';
 import { f5Api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { HUMAN_ASSIGNEE_ID } from '../shared/types';
 import type {
   AgentConfig,
   AgentConnectionTestResult,
@@ -81,6 +84,7 @@ import type {
   ConversationListItem,
   CreateDocumentCommentInput,
   CreateDocumentInput,
+  CreateTaskConversationInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteDocumentCommentInput,
@@ -122,6 +126,7 @@ function WorkspaceApp(): React.JSX.Element {
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState('');
   const [view, setView] = useState<AppView>('workspace');
+  const [activeTaskId, setActiveTaskId] = useState('');
   const [newOpen, setNewOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -230,12 +235,14 @@ function WorkspaceApp(): React.JSX.Element {
     if (!normalized) return snapshot.tasks;
     return snapshot.tasks.filter((task) =>
       `${task.title} ${task.body} ${
-        snapshot.agents.find((agent) => agent.id === task.agentId)?.name ?? task.agentId
+        task.agentId === HUMAN_ASSIGNEE_ID
+          ? snapshot.profile.displayName
+          : (snapshot.agents.find((agent) => agent.id === task.agentId)?.name ?? task.agentId)
       }`
         .toLowerCase()
         .includes(normalized),
     );
-  }, [query, snapshot.agents, snapshot.tasks]);
+  }, [query, snapshot.agents, snapshot.profile.displayName, snapshot.tasks]);
   const filteredDocuments = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return snapshot.documents;
@@ -349,6 +356,50 @@ function WorkspaceApp(): React.JSX.Element {
     await updateSnapshot(f5Api.deleteDocumentComment(input));
   }
 
+  async function openConversation(conversationId: string): Promise<void> {
+    const next = await updateSnapshot(f5Api.initializeWorkspace(conversationId));
+    if (next) setView('workspace');
+  }
+
+  function openTask(taskId: string): void {
+    setActiveTaskId(taskId);
+    setView('task-workbench');
+  }
+
+  async function createTaskConversation(input: CreateTaskConversationInput): Promise<void> {
+    const next = await updateSnapshot(f5Api.createTaskConversation(input));
+    const taskId = next?.activeConversation?.conversation.taskId;
+    if (taskId) setActiveTaskId(taskId);
+    if (next) setView('workspace');
+  }
+
+  async function startTaskChat(taskId: string): Promise<void> {
+    const task = snapshot.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    const agentId =
+      task.agentId === HUMAN_ASSIGNEE_ID ? snapshot.profile.defaultAgentId : task.agentId;
+    const next = await updateSnapshot(
+      f5Api.createConversation({
+        title: task.title,
+        agentId,
+        taskId: task.id,
+      }),
+    );
+    if (next) setView('workspace');
+  }
+
+  async function createTaskDocument(taskId: string): Promise<void> {
+    const task = snapshot.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    await createDocument({
+      title: task.title,
+      body: `# ${task.title}\n`,
+      taskId: task.id,
+    });
+    setActiveTaskId(task.id);
+    setView('task-workbench');
+  }
+
   async function sendPrompt(): Promise<void> {
     if (!active || !draft.trim()) return;
     const content = draft.trim();
@@ -385,7 +436,7 @@ function WorkspaceApp(): React.JSX.Element {
                 persistThemePreference(resolvedTheme === 'dark' ? 'light' : 'dark')
               }
               onBack={() => setView('workspace')}
-              onForward={() => setView(active ? 'agent-profile' : 'overview')}
+              onForward={() => setView(active ? 'agent-profile' : 'agents')}
             />
             {error ? (
               <ErrorBanner
@@ -408,9 +459,7 @@ function WorkspaceApp(): React.JSX.Element {
                     activeId={active?.conversation.id}
                     query={query}
                     onQueryChange={setQuery}
-                    onOpen={(conversationId) =>
-                      void updateSnapshot(f5Api.initializeWorkspace(conversationId))
-                    }
+                    onOpen={(conversationId) => void openConversation(conversationId)}
                     onNew={() => setNewOpen(true)}
                     agents={snapshot.agents}
                     defaultAgentId={snapshot.profile.defaultAgentId}
@@ -421,7 +470,7 @@ function WorkspaceApp(): React.JSX.Element {
                       ).length
                     }
                     onToggleArchived={() => setShowArchived((value) => !value)}
-                    onQuickCreate={(input) => void updateSnapshot(f5Api.createConversation(input))}
+                    onQuickCreate={(input) => void createTaskConversation(input)}
                   />
                 </aside>
               ) : null}
@@ -429,6 +478,7 @@ function WorkspaceApp(): React.JSX.Element {
                 view={view}
                 snapshot={snapshot}
                 active={active}
+                activeTaskId={activeTaskId}
                 taskLists={snapshot.taskLists}
                 tasks={filteredTasks}
                 documents={filteredDocuments}
@@ -477,13 +527,18 @@ function WorkspaceApp(): React.JSX.Element {
                   active && void updateSnapshot(f5Api.cancelActive(active.conversation.id))
                 }
                 onAgentProfile={() => setView('agent-profile')}
+                onOpenTasks={() => setView('tasks')}
+                onOpenTask={openTask}
                 onUserProfile={() => setView('user-profile')}
-                onBack={() => setView('workspace')}
+                onBack={() => setView(view === 'task-workbench' ? 'board' : 'workspace')}
                 onTogglePanel={() => setPanelOpen((value) => !value)}
                 onProfileSave={(input) => void updateSnapshot(f5Api.updateProfile(input))}
                 onThemePreview={setThemePreference}
                 onIconThemePreview={setIconThemePreference}
                 iconPreviewUrl={currentLogoUrl}
+                onOpenTaskConversation={(conversationId) => void openConversation(conversationId)}
+                onStartTaskChat={(taskId) => void startTaskChat(taskId)}
+                onCreateTaskDocument={(taskId) => void createTaskDocument(taskId)}
                 onCreateTask={createTask}
                 onUpdateTask={updateTask}
                 onDeleteTask={deleteTask}
@@ -511,9 +566,7 @@ function WorkspaceApp(): React.JSX.Element {
         agents={snapshot.agents}
         defaultAgentId={snapshot.profile.defaultAgentId}
         onOpenChange={setNewOpen}
-        onCreate={(input) =>
-          void updateSnapshot(f5Api.createConversation(input)).then(() => setNewOpen(false))
-        }
+        onCreate={(input) => void createTaskConversation(input).then(() => setNewOpen(false))}
       />
       <RenameDialog
         open={renameOpen}
@@ -536,9 +589,7 @@ function WorkspaceApp(): React.JSX.Element {
             activeId={active?.conversation.id}
             query={query}
             onQueryChange={setQuery}
-            onOpen={(conversationId) =>
-              void updateSnapshot(f5Api.initializeWorkspace(conversationId))
-            }
+            onOpen={(conversationId) => void openConversation(conversationId)}
             onNew={() => setNewOpen(true)}
             agents={snapshot.agents}
             defaultAgentId={snapshot.profile.defaultAgentId}
@@ -548,7 +599,7 @@ function WorkspaceApp(): React.JSX.Element {
                 .length
             }
             onToggleArchived={() => setShowArchived((value) => !value)}
-            onQuickCreate={(input) => void updateSnapshot(f5Api.createConversation(input))}
+            onQuickCreate={(input) => void createTaskConversation(input)}
           />
         </SheetContent>
       </Sheet>
@@ -614,7 +665,7 @@ function TopChrome(props: {
             className="liquid-glass-control h-9 rounded-lg pl-9"
           />
         </div>
-        <IconButton label="New conversation" icon={Plus} onClick={props.onNewConversation} />
+        <IconButton label="New task" icon={Plus} onClick={props.onNewConversation} />
         <IconButton label="Toggle theme" icon={Sparkles} onClick={props.onToggleTheme} />
       </div>
     </header>
@@ -622,6 +673,8 @@ function TopChrome(props: {
 }
 
 function searchPlaceholder(view: AppView): string {
+  if (view === 'board') return 'Search board';
+  if (view === 'task-workbench') return 'Search task';
   if (view === 'tasks') return 'Search TODO';
   if (view === 'documents') return 'Search docs';
   return 'Search conversations';
@@ -639,9 +692,9 @@ function NavigationRail(props: {
 }): React.JSX.Element {
   const items = [
     { label: 'Chat', icon: MessageCircle, view: 'workspace' as const },
+    { label: 'Board', icon: Grid2X2, view: 'board' as const },
     { label: 'TODO', icon: Check, view: 'tasks' as const },
     { label: 'Docs', icon: FileText, view: 'documents' as const },
-    { label: 'Workspace overview', icon: Grid2X2, view: 'overview' as const },
     { label: 'Agents', icon: Bot, view: 'agents' as const },
   ];
   return (
@@ -730,7 +783,7 @@ function ConversationPane(props: {
   showArchived: boolean;
   archivedCount: number;
   onToggleArchived: () => void;
-  onQuickCreate: (input: { title?: string; agentId: string; firstPrompt?: string }) => void;
+  onQuickCreate: (input: CreateTaskConversationInput) => void;
 }): React.JSX.Element {
   const today = props.conversations.slice(0, 3);
   const older = props.conversations.slice(3);
@@ -797,7 +850,7 @@ function NewConversationButton(props: {
   agents: AgentConfig[];
   primaryAgentId: string;
   onNew: () => void;
-  onQuickCreate: (input: { title?: string; agentId: string; firstPrompt?: string }) => void;
+  onQuickCreate: (input: CreateTaskConversationInput) => void;
 }): React.JSX.Element {
   const primaryAgent = props.agents.find((agent) => agent.id === props.primaryAgentId);
   return (
@@ -808,14 +861,14 @@ function NewConversationButton(props: {
         onClick={props.onNew}
       >
         <Plus data-icon="inline-start" />
-        New conversation
+        New task
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             className="rounded-none border-0 bg-transparent px-2 text-primary-foreground hover:bg-primary/90 aria-expanded:bg-primary/90"
             size="sm"
-            aria-label="New conversation options"
+            aria-label="New task options"
           >
             <ChevronDown />
           </Button>
@@ -824,19 +877,19 @@ function NewConversationButton(props: {
           <DropdownMenuItem
             onClick={() =>
               props.onQuickCreate({
-                title: 'New conversation',
+                title: 'New task',
                 agentId: primaryAgent?.id ?? props.primaryAgentId,
               })
             }
           >
-            Start with {primaryAgent?.name ?? 'default agent'}
+            Task with {primaryAgent?.name ?? 'default agent'}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {props.agents.slice(0, 4).map((agent) => (
             <DropdownMenuItem
               key={agent.id}
               onClick={() =>
-                props.onQuickCreate({ title: `${agent.name} conversation`, agentId: agent.id })
+                props.onQuickCreate({ title: `${agent.name} task`, agentId: agent.id })
               }
             >
               Recent agent: {agent.name}
@@ -924,6 +977,7 @@ function WorkspaceSurface(props: {
   view: AppView;
   snapshot: WorkspaceSnapshot;
   active?: OpenConversation;
+  activeTaskId: string;
   taskLists: WorkspaceSnapshot['taskLists'];
   tasks: WorkspaceSnapshot['tasks'];
   documents: WorkspaceSnapshot['documents'];
@@ -945,6 +999,8 @@ function WorkspaceSurface(props: {
   onCancelQueued: (messageId: string) => void;
   onCancelActive: () => void;
   onAgentProfile: () => void;
+  onOpenTasks: () => void;
+  onOpenTask: (taskId: string) => void;
   onUserProfile: () => void;
   onBack: () => void;
   onTogglePanel: () => void;
@@ -967,8 +1023,14 @@ function WorkspaceSurface(props: {
   onDeleteDocumentComment: (input: DeleteDocumentCommentInput) => Promise<void>;
   onSendToAgent: (content: string) => Promise<void>;
   onRevealDocument: (documentId: string) => Promise<void>;
+  onOpenTaskConversation: (conversationId: string) => void;
+  onStartTaskChat: (taskId: string) => void;
+  onCreateTaskDocument: (taskId: string) => void;
 }): React.JSX.Element {
   const active = props.active;
+  const activeTask = active?.conversation.taskId
+    ? props.snapshot.tasks.find((task) => task.id === active.conversation.taskId)
+    : undefined;
   if (props.view === 'user-profile') {
     return (
       <UserProfilePage
@@ -993,6 +1055,7 @@ function WorkspaceSurface(props: {
         tasks={props.tasks}
         agents={props.snapshot.agents}
         defaultAgentId={props.snapshot.profile.defaultAgentId}
+        profileDisplayName={props.snapshot.profile.displayName}
         query={props.query}
         onQueryChange={props.onQueryChange}
         onBack={props.onBack}
@@ -1005,11 +1068,35 @@ function WorkspaceSurface(props: {
       />
     );
   }
+  if (props.view === 'board') {
+    return (
+      <WorkspaceBoardPage
+        snapshot={props.snapshot}
+        query={props.query}
+        onQueryChange={props.onQueryChange}
+        onOpenTask={props.onOpenTask}
+        onOpenTasks={props.onOpenTasks}
+      />
+    );
+  }
+  if (props.view === 'task-workbench') {
+    return (
+      <TaskWorkbenchPage
+        snapshot={props.snapshot}
+        taskId={props.activeTaskId}
+        onBack={props.onBack}
+        onOpenConversation={props.onOpenTaskConversation}
+        onStartChat={props.onStartTaskChat}
+        onCreateDocument={props.onCreateTaskDocument}
+      />
+    );
+  }
   if (props.view === 'documents') {
     return (
       <DocumentsPage
         documents={props.documents}
         comments={props.documentComments}
+        tasks={props.snapshot.tasks}
         query={props.query}
         onQueryChange={props.onQueryChange}
         onBack={props.onBack}
@@ -1026,9 +1113,6 @@ function WorkspaceSurface(props: {
         agentName={active?.agent.name ?? 'Agent'}
       />
     );
-  }
-  if (props.view === 'overview') {
-    return <WorkspaceOverviewPage snapshot={props.snapshot} onBack={props.onBack} />;
   }
   if (props.view === 'agents') {
     return (
@@ -1052,6 +1136,7 @@ function WorkspaceSurface(props: {
             <>
               <ChatHeader
                 active={active}
+                taskTitle={activeTask?.title}
                 onRename={props.onRename}
                 onStar={props.onStar}
                 onArchive={props.onArchive}
@@ -1098,6 +1183,7 @@ function WorkspaceSurface(props: {
  */
 function ChatHeader(props: {
   active: OpenConversation;
+  taskTitle?: string;
   onRename: () => void;
   onStar: () => void;
   onArchive: () => void;
@@ -1116,6 +1202,12 @@ function ChatHeader(props: {
           <span>{props.active.agent.name}</span>
           <span className={cn('size-2 rounded-full', connection.dotClass)} />
           <span>{connection.label}</span>
+          {props.taskTitle ? (
+            <>
+              <span className="size-1 rounded-full bg-muted-foreground/60" />
+              <span className="truncate">Task: {props.taskTitle}</span>
+            </>
+          ) : null}
         </div>
       </div>
       <div className="ml-auto flex items-center gap-1">
@@ -1667,45 +1759,6 @@ function connectionState(agent: AgentConfig): { label: string; dotClass: string 
   return { label: 'Not connected', dotClass: 'bg-destructive' };
 }
 
-function WorkspaceOverviewPage({
-  snapshot,
-  onBack,
-}: {
-  snapshot: WorkspaceSnapshot;
-  onBack: () => void;
-}): React.JSX.Element {
-  const activeCount = snapshot.conversations.filter(
-    (conversation) => conversation.status === 'active',
-  ).length;
-  const archivedCount = snapshot.conversations.filter(
-    (conversation) => conversation.status === 'archived',
-  ).length;
-  const messageCount = snapshot.conversations.reduce(
-    (total, conversation) => total + conversation.messageCount,
-    0,
-  );
-  const todoCount = snapshot.tasks.filter((task) => task.status === 'todo').length;
-  return (
-    <ProfileShell title="Workspace Overview" onBack={onBack}>
-      <CardContent className="grid gap-4 sm:grid-cols-5">
-        <MetricCard label="Active conversations" value={String(activeCount)} />
-        <MetricCard label="Archived conversations" value={String(archivedCount)} />
-        <MetricCard label="Messages" value={String(messageCount)} />
-        <MetricCard label="Open TODO" value={String(todoCount)} />
-        <MetricCard label="Docs" value={String(snapshot.documents.length)} />
-        <div className="rounded-lg border bg-muted/30 p-4 text-sm sm:col-span-5">
-          <div className="font-medium">Workspace path</div>
-          <div className="mt-2 break-all text-muted-foreground">{snapshot.workspacePath}</div>
-          <Button className="mt-4" variant="outline" onClick={() => void f5Api.revealWorkspace()}>
-            <FolderOpen data-icon="inline-start" />
-            Show workspace folder
-          </Button>
-        </div>
-      </CardContent>
-    </ProfileShell>
-  );
-}
-
 // Agents page lists every configured local agent with command, availability, and profile access.
 function AgentsPage({
   agents,
@@ -1744,15 +1797,6 @@ function AgentsPage({
         })}
       </CardContent>
     </ProfileShell>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }): React.JSX.Element {
-  return (
-    <div className="rounded-lg border bg-muted/30 p-4">
-      <div className="text-2xl font-semibold">{value}</div>
-      <div className="mt-1 text-sm text-muted-foreground">{label}</div>
-    </div>
   );
 }
 
@@ -1956,13 +2000,13 @@ function ProfileRow({ label, value }: { label: string; value: string }): React.J
   );
 }
 
-// New conversation flow owns its draft fields and creates files only after the user confirms the dialog.
+// New task flow owns its draft fields and creates files only after the user confirms the dialog.
 function NewConversationFlow(props: {
   open: boolean;
   agents: AgentConfig[];
   defaultAgentId: string;
   onOpenChange: (open: boolean) => void;
-  onCreate: (input: { title?: string; agentId: string; firstPrompt?: string }) => void;
+  onCreate: (input: CreateTaskConversationInput) => void;
 }): React.JSX.Element {
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -1971,16 +2015,16 @@ function NewConversationFlow(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New conversation</DialogTitle>
+          <DialogTitle>New task</DialogTitle>
           <DialogDescription>
-            Choose an agent and optionally start with a first prompt.
+            Choose an assignee and optionally start a bound chat with a first prompt.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <Input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Optional title"
+            placeholder="Task title"
           />
           <Select value={agentId} onValueChange={setAgentId}>
             <SelectTrigger>
@@ -2008,13 +2052,26 @@ function NewConversationFlow(props: {
           <Button variant="outline" onClick={() => props.onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => props.onCreate({ title, agentId, firstPrompt: prompt })}>
+          <Button
+            onClick={() =>
+              props.onCreate({
+                title: title.trim() || titleFromPrompt(prompt) || 'New task',
+                agentId,
+                firstPrompt: prompt,
+              })
+            }
+          >
             Create
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+function titleFromPrompt(prompt: string): string {
+  const cleaned = prompt.trim().replace(/\s+/g, ' ');
+  return cleaned.length > 44 ? `${cleaned.slice(0, 44)}...` : cleaned;
 }
 
 // Rename dialog keeps a local title draft so cancelling does not mutate conversation metadata.
@@ -2048,7 +2105,7 @@ function EmptyWorkspace(): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
       <MessageCircle className="size-10" />
-      <p>Create a conversation to start chatting with an agent.</p>
+      <p>Create a task to start a bound chat with an agent.</p>
     </div>
   );
 }

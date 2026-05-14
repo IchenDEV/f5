@@ -279,13 +279,13 @@ function buildHelpDataUrl(iconDataUrl: string): string {
       ${iconDataUrl ? `<img src="${iconDataUrl}" alt="${APP_DISPLAY_NAME}" />` : ''}
       <div>
         <h1>${APP_DISPLAY_NAME} Help</h1>
-        <p>Local AI workspace with Markdown conversations.</p>
+        <p>Local AI workspace with task-bound chats and Markdown docs.</p>
       </div>
     </header>
     <section>
       <h2>Common Actions</h2>
       <dl>
-        <dt>New conversation</dt><dd>Use the plus button in the top bar or conversation list.</dd>
+        <dt>New task</dt><dd>Use the plus button in the top bar or chat history.</dd>
         <dt>Conversation files</dt><dd>Use “Show file location” from the conversation menu.</dd>
         <dt>Workspace folder</dt><dd>Use Help > Show Workspace Folder.</dd>
       </dl>
@@ -314,6 +314,10 @@ ipcMain.handle('workspace:initialize', async (_event, activeConversationId?: str
 
 ipcMain.handle('conversation:create', async (_event, input) => {
   return engine.createConversation(input);
+});
+
+ipcMain.handle('task-conversation:create', async (_event, input) => {
+  return engine.createTaskConversation(input);
 });
 
 ipcMain.handle('conversation:open', async (_event, conversationId: string) => {

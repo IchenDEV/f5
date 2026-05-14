@@ -4,6 +4,7 @@ import type {
   CreateConversationInput,
   CreateDocumentCommentInput,
   CreateDocumentInput,
+  CreateTaskConversationInput,
   CreateTaskListInput,
   CreateTaskInput,
   DeleteConversationInput,
@@ -28,6 +29,9 @@ export const f5Api = {
   },
   createConversation(input: CreateConversationInput) {
     return window.f5.createConversation(input);
+  },
+  createTaskConversation(input: CreateTaskConversationInput) {
+    return window.f5.createTaskConversation(input);
   },
   sendMessage(input: SendMessageInput) {
     return window.f5.sendMessage(input);

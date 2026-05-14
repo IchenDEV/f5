@@ -28,6 +28,7 @@ import {
   taskListRecordSchema,
   taskRecordSchema,
 } from './schemas';
+import { HUMAN_ASSIGNEE_ID } from './types';
 
 describe('WorkspaceStore', () => {
   it('creates, persists, indexes, and reloads markdown conversations', async () => {
@@ -78,6 +79,41 @@ describe('WorkspaceStore', () => {
 
     const index = JSON.parse(await readFile(join(workspacePath, 'index.json'), 'utf8'));
     expect(index.conversations[0].messageCount).toBe(2);
+  });
+
+  it('persists task links on conversations and keeps older conversation files readable', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-conversation-task-link-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const task = await store.createTask({ title: 'Task-linked conversation' });
+    const conversation = await store.createConversation({
+      title: 'Task chat',
+      taskId: task.id,
+    });
+
+    const conversationPath = join(
+      workspacePath,
+      'conversations',
+      conversation.conversation.id,
+      'conversation.md',
+    );
+    const rawConversation = matter(await readFile(conversationPath, 'utf8'));
+    expect(rawConversation.data.taskId).toBe(task.id);
+    expect((await store.openConversation(conversation.conversation.id)).conversation.taskId).toBe(
+      task.id,
+    );
+    expect(
+      (await store.listConversations()).find((item) => item.id === conversation.conversation.id),
+    ).toMatchObject({ taskId: task.id });
+
+    delete rawConversation.data.taskId;
+    await writeFile(
+      conversationPath,
+      matter.stringify(rawConversation.content, rawConversation.data),
+      'utf8',
+    );
+
+    const oldConversation = await store.openConversation(conversation.conversation.id);
+    expect(oldConversation.conversation.taskId).toBe('');
   });
 
   it('rejects path-like local ids before filesystem operations', async () => {
@@ -193,6 +229,29 @@ describe('WorkspaceStore', () => {
 
     await restarted.deleteTask({ taskId: task.id });
     expect(await restarted.listTasks()).toHaveLength(0);
+  });
+
+  it('persists human task assignments without rewriting them to the default agent', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-human-task-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const task = await store.createTask({
+      title: 'Review agent output',
+      agentId: HUMAN_ASSIGNEE_ID,
+    });
+    expect(task.agentId).toBe(HUMAN_ASSIGNEE_ID);
+
+    const updated = await store.updateTask({
+      taskId: task.id,
+      title: 'Review agent output',
+      body: 'Check the plan before running it.',
+      status: 'todo',
+      agentId: HUMAN_ASSIGNEE_ID,
+    });
+    expect(updated.agentId).toBe(HUMAN_ASSIGNEE_ID);
+
+    const restarted = new WorkspaceStore(workspacePath);
+    await restarted.ensureWorkspace();
+    expect((await restarted.readTask(task.id)).agentId).toBe(HUMAN_ASSIGNEE_ID);
   });
 
   it('creates multiple TODO lists, indexes counts, and persists task membership', async () => {
@@ -353,6 +412,30 @@ describe('WorkspaceStore', () => {
     expect(
       (await restarted.listDocumentComments()).some((item) => item.id === secondComment.id),
     ).toBe(false);
+  });
+
+  it('persists task links on documents and keeps older document files readable', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-document-task-link-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const task = await store.createTask({ title: 'Task-linked document' });
+    const document = await store.createDocument({
+      title: 'Task doc',
+      body: '# Task doc\n',
+      taskId: task.id,
+    });
+
+    const documentPath = join(workspacePath, 'documents', `${document.id}.md`);
+    const rawDocument = matter(await readFile(documentPath, 'utf8'));
+    expect(rawDocument.data.taskId).toBe(task.id);
+    expect((await store.readDocument(document.id)).taskId).toBe(task.id);
+    expect((await store.listDocuments()).find((item) => item.id === document.id)).toMatchObject({
+      taskId: task.id,
+    });
+
+    delete rawDocument.data.taskId;
+    await writeFile(documentPath, matter.stringify(rawDocument.content, rawDocument.data), 'utf8');
+
+    expect((await store.readDocument(document.id)).taskId).toBe('');
   });
 
   it('marks invalid TODO and document frontmatter as needing repair', async () => {
@@ -564,6 +647,32 @@ describe('WorkspaceStore', () => {
     const idle = await engine.waitForIdle(conversationId!);
     expect(idle.messages.filter((message) => message.meta.status === 'failed')).toHaveLength(1);
     expect(idle.state.queue).toHaveLength(0);
+  });
+
+  it('creates a task before opening its bound conversation', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-task-conversation-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    const engine = new ConversationEngine(store);
+
+    const snapshot = await engine.createTaskConversation({
+      title: 'Human-owned task',
+      body: 'Needs a draft',
+      agentId: HUMAN_ASSIGNEE_ID,
+    });
+    const task = snapshot.tasks.find((item) => item.title === 'Human-owned task');
+
+    expect(task).toMatchObject({
+      agentId: HUMAN_ASSIGNEE_ID,
+      body: 'Needs a draft',
+    });
+    expect(snapshot.activeConversation?.conversation).toMatchObject({
+      title: 'Human-owned task',
+      taskId: task?.id,
+      agentId: defaultAgentsFile.defaultAgentId,
+    });
+    expect(snapshot.conversations.find((item) => item.taskId === task?.id)?.id).toBe(
+      snapshot.activeConversation?.conversation.id,
+    );
   });
 
   it('emits snapshots for engine-managed workspace TODO and document operations', async () => {
