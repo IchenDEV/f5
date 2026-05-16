@@ -931,6 +931,138 @@ describe('WorkspaceStore', () => {
     expect(generatedPrompt).toContain('then?');
   });
 
+  it('resolves Markdown entity mentions into Codex CLI prompt context', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-entity-context-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    await store.ensureWorkspace();
+    const captureScript = join(workspacePath, 'capture-entity-context.cjs');
+    await writeFile(
+      captureScript,
+      [
+        "const fs = require('node:fs');",
+        "const outputIndex = process.argv.indexOf('--output-last-message');",
+        'const outputPath = process.argv[outputIndex + 1];',
+        'const prompt = process.argv.at(-1) || "";',
+        "fs.writeFileSync(outputPath, prompt, 'utf8');",
+      ].join('\n'),
+      'utf8',
+    );
+    await writeFile(
+      join(workspacePath, 'agents', 'agents.json'),
+      JSON.stringify({
+        schema: 'f5.agents.v1',
+        defaultAgentId: 'capture-codex',
+        agents: [
+          {
+            id: 'capture-codex',
+            name: 'Capture Codex',
+            kind: 'codex-cli',
+            command: process.execPath,
+            args: [captureScript],
+            cwd: workspacePath,
+            enabled: true,
+            availability: 'available',
+            protocolVersion: 'Codex CLI',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const document = await store.createDocument({
+      title: 'Entity design',
+      body: '# Entity design\n\nDocuments, TODO, conversations, and agents are entities.',
+    });
+    const task = await store.createTask({
+      title: 'Ship entity mention',
+      body: 'Use the shared entity model in chat.',
+    });
+    const engine = new ConversationEngine(store);
+    const snapshot = await engine.createConversation({
+      title: 'Entity context test',
+      agentId: 'capture-codex',
+    });
+    const conversationId = snapshot.activeConversation?.conversation.id;
+    expect(conversationId).toBeTruthy();
+
+    await engine.sendMessage({
+      conversationId: conversationId!,
+      content: [
+        `Review @[Entity design](f5://document/${document.id}).`,
+        `Then handle @[Ship entity mention](f5://todo/${task.id}).`,
+      ].join('\n'),
+    });
+
+    const idle = await engine.waitForIdle(conversationId!);
+    const generatedPrompt = idle.messages.at(-1)?.body ?? '';
+    expect(generatedPrompt).toContain('## Referenced workspace entities');
+    expect(generatedPrompt).toContain('### Document: Entity design');
+    expect(generatedPrompt).toContain('Documents, TODO, conversations, and agents are entities.');
+    expect(generatedPrompt).toContain('### TODO: Ship entity mention');
+    expect(generatedPrompt).toContain('Use the shared entity model in chat.');
+  });
+
+  it('indexes workspace entity references across resources', async () => {
+    const workspacePath = await mkdtemp(join(tmpdir(), 'f5-entity-reference-test-'));
+    const store = new WorkspaceStore(workspacePath);
+    await store.ensureWorkspace();
+    const document = await store.createDocument({
+      title: 'Entity design',
+      body: '# Entity design',
+    });
+    const task = await store.createTask({
+      title: 'Launch checklist',
+      body: `Read @[Entity design](f5://document/${document.id}).`,
+    });
+    await store.updateDocument({
+      documentId: document.id,
+      title: document.title,
+      body: `Handle @[Launch checklist](f5://todo/${task.id}).`,
+    });
+    const comment = await store.createDocumentComment({
+      documentId: document.id,
+      body: `Discuss @[Launch checklist](f5://todo/${task.id}).`,
+    });
+    const conversation = await store.createConversation({
+      title: 'Entity chat',
+      agentId: 'codex-cli-real',
+    });
+    const message = await store.addMessage({
+      conversationId: conversation.conversation.id,
+      role: 'user',
+      agentId: conversation.agent.id,
+      status: 'completed',
+      body: `Compare @[Entity design](f5://document/${document.id}).`,
+    });
+
+    const snapshot = await store.getSnapshot(conversation.conversation.id);
+
+    expect(snapshot.entityReferences).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: expect.objectContaining({ kind: 'document', id: document.id }),
+          target: expect.objectContaining({ kind: 'todo', id: task.id }),
+        }),
+        expect.objectContaining({
+          source: expect.objectContaining({ kind: 'todo', id: task.id }),
+          target: expect.objectContaining({ kind: 'document', id: document.id }),
+        }),
+        expect.objectContaining({
+          source: expect.objectContaining({ kind: 'document-comment', id: comment.id }),
+          target: expect.objectContaining({ kind: 'todo', id: task.id }),
+        }),
+        expect.objectContaining({
+          source: expect.objectContaining({
+            kind: 'conversation-message',
+            id: message.meta.id,
+            parentId: conversation.conversation.id,
+          }),
+          target: expect.objectContaining({ kind: 'document', id: document.id }),
+        }),
+      ]),
+    );
+  });
+
   it('streams Codex CLI JSONL updates into the assistant message before completion', async () => {
     const workspacePath = await mkdtemp(join(tmpdir(), 'f5-codex-stream-test-'));
     const store = new WorkspaceStore(workspacePath);

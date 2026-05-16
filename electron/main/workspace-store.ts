@@ -39,6 +39,7 @@ import {
   taskListRecordSchema,
   taskRecordSchema,
 } from '../../src/shared/schemas';
+import { parseWorkspaceEntityMentions } from '../../src/shared/workspace-entities';
 import type {
   ArchiveConversationInput,
   AgentConfig,
@@ -80,6 +81,8 @@ import type {
   UpdateTaskListInput,
   UpdateTaskInput,
   UserProfile,
+  WorkspaceEntityReference,
+  WorkspaceEntityReferenceSource,
   WorkspaceSnapshot,
 } from '../../src/shared/types';
 
@@ -1028,6 +1031,104 @@ export class WorkspaceStore {
     return index;
   }
 
+  // Scans editable workspace text so the renderer can show backlinks without reparsing every view.
+  async listEntityReferences(): Promise<WorkspaceEntityReference[]> {
+    await this.ensureWorkspace();
+    const [documents, tasks, comments, conversations] = await Promise.all([
+      this.listDocuments(),
+      this.listTasks(),
+      this.listDocumentComments(),
+      this.listConversations(),
+    ]);
+    const documentReferences = await Promise.all(
+      documents.map(async (item) => {
+        try {
+          const document = await this.readDocument(item.id);
+          return this.entityReferencesFromContent(
+            document.body,
+            {
+              kind: 'document',
+              id: document.id,
+              label: document.title,
+            },
+            document.createdAt,
+            document.updatedAt,
+          );
+        } catch {
+          return [];
+        }
+      }),
+    );
+    const taskReferences = tasks.map((task) =>
+      this.entityReferencesFromContent(
+        task.body,
+        {
+          kind: 'todo',
+          id: task.id,
+          label: task.title,
+        },
+        task.createdAt,
+        task.updatedAt,
+      ),
+    );
+    const commentReferences = comments.map((comment) =>
+      this.entityReferencesFromContent(
+        comment.body,
+        {
+          kind: 'document-comment',
+          id: comment.id,
+          label: comment.anchorText || `Comment on ${comment.documentId}`,
+          parentId: comment.documentId,
+        },
+        comment.createdAt,
+        comment.updatedAt,
+      ),
+    );
+    const messageReferences = await Promise.all(
+      conversations.map(async (conversation) => {
+        try {
+          const messages = await this.readMessages(conversation.id);
+          return messages.flatMap((message) =>
+            this.entityReferencesFromContent(
+              message.body,
+              {
+                kind: 'conversation-message',
+                id: message.meta.id,
+                label: `${conversation.title} #${message.meta.sequence}`,
+                parentId: conversation.id,
+              },
+              message.meta.createdAt,
+              message.meta.updatedAt,
+            ),
+          );
+        } catch {
+          return [];
+        }
+      }),
+    );
+    return [
+      ...documentReferences.flat(),
+      ...taskReferences.flat(),
+      ...commentReferences.flat(),
+      ...messageReferences.flat(),
+    ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  private entityReferencesFromContent(
+    content: string,
+    source: WorkspaceEntityReferenceSource,
+    createdAt: string,
+    updatedAt: string,
+  ): WorkspaceEntityReference[] {
+    return parseWorkspaceEntityMentions(content).map((target) => ({
+      source,
+      target,
+      excerpt: entityReferenceExcerpt(content, target.uri),
+      createdAt,
+      updatedAt,
+    }));
+  }
+
   async getSnapshot(activeConversationId?: string): Promise<WorkspaceSnapshot> {
     await this.ensureWorkspace();
     const conversations = await this.listConversations();
@@ -1044,6 +1145,7 @@ export class WorkspaceStore {
       tasks: await this.listTasks(),
       documents: await this.listDocuments(),
       documentComments: await this.listDocumentComments(),
+      entityReferences: await this.listEntityReferences(),
       activeConversation,
     };
   }
@@ -1253,6 +1355,14 @@ function titleFromPrompt(prompt?: string): string {
   if (!prompt?.trim()) return '';
   const cleaned = prompt.trim().replace(/\s+/g, ' ');
   return cleaned.length > 44 ? `${cleaned.slice(0, 44)}...` : cleaned;
+}
+
+function entityReferenceExcerpt(content: string, uri: string): string {
+  const index = content.indexOf(uri);
+  if (index < 0) return content.trim().slice(0, 180);
+  const start = Math.max(0, index - 80);
+  const end = Math.min(content.length, index + uri.length + 80);
+  return content.slice(start, end).replace(/\s+/g, ' ').trim();
 }
 
 function safeFileName(value: string): string {

@@ -16,4 +16,5 @@ export const fallbackSnapshot: WorkspaceSnapshot = {
   tasks: [],
   documents: [],
   documentComments: [],
+  entityReferences: [],
 };
