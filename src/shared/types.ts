@@ -37,6 +37,40 @@ export type AppView =
   | 'agent-profile'
   | 'agents';
 export type AppearancePreference = 'light' | 'dark' | 'system';
+export type WorkspaceEntityKind = 'document' | 'todo' | 'todo-list' | 'conversation' | 'agent';
+
+export interface WorkspaceEntityRef {
+  kind: WorkspaceEntityKind;
+  id: string;
+  label: string;
+  uri: string;
+}
+
+export interface WorkspaceEntity extends WorkspaceEntityRef {
+  subtitle: string;
+  searchText: string;
+}
+
+export type WorkspaceEntityReferenceSourceKind =
+  | 'document'
+  | 'todo'
+  | 'document-comment'
+  | 'conversation-message';
+
+export interface WorkspaceEntityReferenceSource {
+  kind: WorkspaceEntityReferenceSourceKind;
+  id: string;
+  label: string;
+  parentId?: string;
+}
+
+export interface WorkspaceEntityReference {
+  source: WorkspaceEntityReferenceSource;
+  target: WorkspaceEntityRef;
+  excerpt: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface ConversationMeta {
   schema: 'f5.conversation.v1';
@@ -383,6 +417,7 @@ export interface WorkspaceSnapshot {
   tasks: TaskListItem[];
   documents: DocumentListItem[];
   documentComments: DocumentCommentListItem[];
+  entityReferences: WorkspaceEntityReference[];
   activeConversation?: OpenConversation;
 }
 

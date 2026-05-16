@@ -10,6 +10,7 @@ import type {
   DocumentRecord,
   TaskListItem,
   TaskListSummary,
+  WorkspaceEntity,
 } from '../../shared/types';
 
 const createdAt = '2026-05-11T00:00:00.000Z';
@@ -36,6 +37,25 @@ const agents: AgentConfig[] = [
     cwd: '.',
     enabled: false,
     availability: 'disabled',
+  },
+];
+
+const mentionEntities: WorkspaceEntity[] = [
+  {
+    kind: 'document',
+    id: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+    label: 'Entity design',
+    uri: 'f5://document/doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+    subtitle: 'Markdown document',
+    searchText: 'document entity design markdown document',
+  },
+  {
+    kind: 'todo',
+    id: 'task_bbbbbbbbbbbbbbbbbbbbbbbb',
+    label: 'Launch checklist',
+    uri: 'f5://todo/task_bbbbbbbbbbbbbbbbbbbbbbbb',
+    subtitle: 'Open in Inbox',
+    searchText: 'todo launch checklist open in inbox',
   },
 ];
 
@@ -405,6 +425,75 @@ describe('workspace resources UI', () => {
     });
   });
 
+  it('inserts workspace entity mentions into TODO notes', async () => {
+    const user = userEvent.setup();
+    const createTask = vi.fn(async () => undefined);
+    render(
+      <TasksPage
+        taskLists={[taskList()]}
+        tasks={[]}
+        agents={agents}
+        defaultAgentId="codex-cli-real"
+        mentionEntities={mentionEntities}
+        query=""
+        onBack={vi.fn()}
+        onCreateTaskList={vi.fn(async () => undefined)}
+        onUpdateTaskList={vi.fn(async () => undefined)}
+        onDeleteTaskList={vi.fn(async () => undefined)}
+        onCreateTask={createTask}
+        onUpdateTask={vi.fn(async () => undefined)}
+        onDeleteTask={vi.fn(async () => undefined)}
+      />,
+    );
+
+    await user.type(screen.getByLabelText('Task title'), 'Mention task');
+    await user.click(screen.getByLabelText('Mention entity'));
+    await user.click(screen.getByRole('button', { name: /Entity design/ }));
+    await user.click(screen.getByRole('button', { name: 'Add task' }));
+
+    expect(createTask).toHaveBeenCalledWith({
+      taskListId: defaultTaskListId,
+      title: 'Mention task',
+      body: '@[Entity design](f5://document/doc_aaaaaaaaaaaaaaaaaaaaaaaa) ',
+      agentId: 'codex-cli-real',
+    });
+  });
+
+  it('renders workspace entity mentions inside TODO rows as openable chips', () => {
+    const openEntity = vi.fn();
+    render(
+      <TasksPage
+        taskLists={[taskList()]}
+        tasks={[
+          task({
+            body: 'Read @[Entity design](f5://document/doc_aaaaaaaaaaaaaaaaaaaaaaaa).',
+          }),
+        ]}
+        agents={agents}
+        defaultAgentId="codex-cli-real"
+        mentionEntities={mentionEntities}
+        query=""
+        onBack={vi.fn()}
+        onCreateTaskList={vi.fn(async () => undefined)}
+        onUpdateTaskList={vi.fn(async () => undefined)}
+        onDeleteTaskList={vi.fn(async () => undefined)}
+        onCreateTask={vi.fn(async () => undefined)}
+        onUpdateTask={vi.fn(async () => undefined)}
+        onDeleteTask={vi.fn(async () => undefined)}
+        onOpenEntity={openEntity}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Document: Entity design' }));
+
+    expect(openEntity).toHaveBeenCalledWith({
+      kind: 'document',
+      id: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+      label: 'Entity design',
+      uri: 'f5://document/doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+    });
+  });
+
   it('opens, previews, edits, and autosaves Markdown documents', async () => {
     const user = userEvent.setup();
     const opened = documentRecord();
@@ -509,6 +598,62 @@ describe('workspace resources UI', () => {
       { timeout: 1500 },
     );
     expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('inserts workspace entity mentions into Markdown documents', async () => {
+    const user = userEvent.setup();
+    const opened = documentRecord({ body: '# Project doc\n\n' });
+    const openDocument = vi.fn(async () => opened);
+    const updateDocument = vi.fn(async (input) =>
+      documentRecord({ title: input.title, body: input.body }),
+    );
+    render(
+      <DocumentsPage
+        documents={[documentListItem()]}
+        mentionEntities={mentionEntities}
+        query=""
+        onBack={vi.fn()}
+        onCreateDocument={vi.fn(async () => opened)}
+        onOpenDocument={openDocument}
+        onUpdateDocument={updateDocument}
+        onDeleteDocument={vi.fn(async () => undefined)}
+        onRevealDocument={vi.fn(async () => undefined)}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Project doc' }));
+    await user.click(screen.getByLabelText('Mention entity'));
+    await user.click(screen.getByRole('button', { name: /Launch checklist/ }));
+
+    await waitFor(
+      () =>
+        expect(updateDocument).toHaveBeenCalledWith({
+          documentId: 'doc_aaaaaaaaaaaaaaaaaaaaaaaa',
+          title: 'Project doc',
+          body: '# Project doc\n\n@[Launch checklist](f5://todo/task_bbbbbbbbbbbbbbbbbbbbbbbb) ',
+        }),
+      { timeout: 1500 },
+    );
+  });
+
+  it('renders workspace entity mentions inside Markdown previews as openable chips', () => {
+    const openEntity = vi.fn();
+    render(
+      <MarkdownPreview
+        body="Review @[Launch checklist](f5://todo/task_bbbbbbbbbbbbbbbbbbbbbbbb)."
+        mentionEntities={mentionEntities}
+        onOpenEntity={openEntity}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open TODO: Launch checklist' }));
+
+    expect(openEntity).toHaveBeenCalledWith({
+      kind: 'todo',
+      id: 'task_bbbbbbbbbbbbbbbbbbbbbbbb',
+      label: 'Launch checklist',
+      uri: 'f5://todo/task_bbbbbbbbbbbbbbbbbbbbbbbb',
+    });
   });
 
   it('creates, reveals, and deletes Markdown documents', async () => {

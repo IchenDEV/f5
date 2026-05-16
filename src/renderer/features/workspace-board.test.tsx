@@ -149,6 +149,7 @@ function snapshot(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot
     ],
     documents: [],
     documentComments: [],
+    entityReferences: [],
     activeConversation: activeConversation(),
     ...overrides,
   };

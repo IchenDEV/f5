@@ -110,6 +110,7 @@ function snapshot(overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot
     tasks: [item],
     documents: [document(item.id)],
     documentComments: [],
+    entityReferences: [],
     ...overrides,
   };
 }

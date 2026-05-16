@@ -15,9 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown, { type Components } from 'react-markdown';
-import rehypeSanitize from 'rehype-sanitize';
-import remarkGfm from 'remark-gfm';
+import type { Components } from 'react-markdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -39,6 +37,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { EntityMarkdown } from '@/features/entity-markdown';
+import { EntityMentionButton, useEntityMentionInput } from '@/features/entity-mentions';
+import { textFromReactNode } from '@/features/react-node-text';
 import { cn } from '@/lib/utils';
 import { HUMAN_ASSIGNEE_ID } from '../../shared/types';
 import type {
@@ -61,6 +62,8 @@ import type {
   UpdateDocumentInput,
   UpdateTaskListInput,
   UpdateTaskInput,
+  WorkspaceEntity,
+  WorkspaceEntityRef,
 } from '../../shared/types';
 
 type TaskFilter = 'all' | TaskStatus;
@@ -93,15 +96,6 @@ function normalizeCommentAnchor(
 
 function escapeMarkdownLinkText(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
-}
-
-function textFromReactNode(node: React.ReactNode): string {
-  if (typeof node === 'string' || typeof node === 'number') return String(node);
-  if (Array.isArray(node)) return node.map(textFromReactNode).join('');
-  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
-    return textFromReactNode(node.props.children);
-  }
-  return '';
 }
 
 function resolveAnchorRange(
@@ -193,12 +187,16 @@ function MarkdownPreview({
   body,
   commentAnchors = [],
   activeCommentId = '',
+  mentionEntities = [],
   onShowAnchor,
+  onOpenEntity,
 }: {
   body: string;
   commentAnchors?: PreviewCommentAnchor[];
   activeCommentId?: string;
+  mentionEntities?: WorkspaceEntity[];
   onShowAnchor?: (commentId: string) => void;
+  onOpenEntity?: (entity: WorkspaceEntityRef) => void;
 }): React.JSX.Element {
   const highlightedBody = useMemo(
     () => markdownWithCommentAnchors(body, commentAnchors),
@@ -233,15 +231,14 @@ function MarkdownPreview({
   );
 
   return (
-    <div className="prose prose-sm max-w-none break-words text-sm dark:prose-invert">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeSanitize]}
-        components={components}
-      >
-        {highlightedBody || '_Empty document_'}
-      </ReactMarkdown>
-    </div>
+    <EntityMarkdown
+      body={highlightedBody}
+      emptyText="_Empty document_"
+      className="prose prose-sm max-w-none break-words text-sm dark:prose-invert"
+      components={components}
+      mentionEntities={mentionEntities}
+      onOpenEntity={onOpenEntity}
+    />
   );
 }
 
@@ -254,6 +251,7 @@ function TasksPage({
   agents = [],
   defaultAgentId = '',
   profileDisplayName = 'You',
+  mentionEntities = [],
   query,
   onQueryChange,
   onBack,
@@ -263,12 +261,14 @@ function TasksPage({
   onCreateTask,
   onUpdateTask,
   onDeleteTask,
+  onOpenEntity,
 }: {
   taskLists: TaskListSummary[];
   tasks: TaskListItem[];
   agents?: AgentConfig[];
   defaultAgentId?: string;
   profileDisplayName?: string;
+  mentionEntities?: WorkspaceEntity[];
   query: string;
   onQueryChange?: (value: string) => void;
   onBack: () => void;
@@ -278,6 +278,7 @@ function TasksPage({
   onCreateTask: (input: CreateTaskInput) => Promise<void>;
   onUpdateTask: (input: UpdateTaskInput) => Promise<void>;
   onDeleteTask: (input: DeleteTaskInput) => Promise<void>;
+  onOpenEntity?: (entity: WorkspaceEntityRef) => void;
 }): React.JSX.Element {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -287,6 +288,19 @@ function TasksPage({
   const [deleteTarget, setDeleteTarget] = useState<TaskListItem | null>(null);
   const [deleteListTarget, setDeleteListTarget] = useState<TaskListSummary | null>(null);
   const [busy, setBusy] = useState(false);
+  const {
+    textareaRef: taskBodyMentionRef,
+    mentionOpen: taskBodyMentionOpen,
+    mentionOptions: taskBodyMentionOptions,
+    openMentionPicker: openTaskBodyMentionPicker,
+    insertMention: insertTaskBodyMention,
+    handleChange: handleTaskBodyMentionChange,
+    handleKeyDown: handleTaskBodyMentionKeyDown,
+  } = useEntityMentionInput({
+    value: body,
+    entities: mentionEntities,
+    onValueChange: setBody,
+  });
   const resolvedActiveListId = taskLists.some((list) => list.id === activeListId)
     ? activeListId
     : (taskLists[0]?.id ?? '');
@@ -514,13 +528,21 @@ function TasksPage({
               onChange={(event) => setTitle(event.target.value)}
             />
             <Textarea
+              ref={taskBodyMentionRef}
               aria-label="Task notes"
               value={body}
               placeholder="Notes"
               className="mt-3 min-h-20 resize-none rounded-lg border bg-background/40"
-              onChange={(event) => setBody(event.target.value)}
+              onChange={handleTaskBodyMentionChange}
+              onKeyDown={handleTaskBodyMentionKeyDown}
             />
-            <div className="mt-3 flex justify-end">
+            <div className="mt-3 flex items-center justify-between">
+              <EntityMentionButton
+                open={taskBodyMentionOpen}
+                options={taskBodyMentionOptions}
+                onOpen={openTaskBodyMentionPicker}
+                onInsert={insertTaskBodyMention}
+              />
               <Button disabled={!activeList || !title.trim() || busy} onClick={createTask}>
                 <Plus data-icon="inline-start" />
                 Add task
@@ -537,9 +559,11 @@ function TasksPage({
                 agents={agents}
                 defaultAgentId={defaultAgentId}
                 profileDisplayName={profileDisplayName}
+                mentionEntities={mentionEntities}
                 busy={busy}
                 onUpdate={onUpdateTask}
                 onDelete={() => setDeleteTarget(task)}
+                onOpenEntity={onOpenEntity}
               />
             ))}
             {visibleTasks.length === 0 ? (
@@ -580,17 +604,21 @@ function TaskRow({
   agents,
   defaultAgentId,
   profileDisplayName,
+  mentionEntities,
   busy,
   onUpdate,
   onDelete,
+  onOpenEntity,
 }: {
   task: TaskListItem;
   agents: AgentConfig[];
   defaultAgentId: string;
   profileDisplayName: string;
+  mentionEntities: WorkspaceEntity[];
   busy: boolean;
   onUpdate: (input: UpdateTaskInput) => Promise<void>;
   onDelete: () => void;
+  onOpenEntity?: (entity: WorkspaceEntityRef) => void;
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
@@ -598,6 +626,19 @@ function TaskRow({
   const initialAgentId = task.agentId || defaultAgentId || agents[0]?.id || HUMAN_ASSIGNEE_ID;
   const [agentId, setAgentId] = useState(initialAgentId);
   const assigneeName = assigneeLabel(agents, profileDisplayName, initialAgentId);
+  const {
+    textareaRef: editTaskBodyMentionRef,
+    mentionOpen: editTaskBodyMentionOpen,
+    mentionOptions: editTaskBodyMentionOptions,
+    openMentionPicker: openEditTaskBodyMentionPicker,
+    insertMention: insertEditTaskBodyMention,
+    handleChange: handleEditTaskBodyMentionChange,
+    handleKeyDown: handleEditTaskBodyMentionKeyDown,
+  } = useEntityMentionInput({
+    value: body,
+    entities: mentionEntities,
+    onValueChange: setBody,
+  });
 
   async function save(nextStatus = task.status): Promise<void> {
     if (!title.trim()) return;
@@ -635,10 +676,18 @@ function TaskRow({
                 onChange={(event) => setTitle(event.target.value)}
               />
               <Textarea
+                ref={editTaskBodyMentionRef}
                 aria-label="Edit task notes"
                 value={body}
                 className="min-h-24 resize-none"
-                onChange={(event) => setBody(event.target.value)}
+                onChange={handleEditTaskBodyMentionChange}
+                onKeyDown={handleEditTaskBodyMentionKeyDown}
+              />
+              <EntityMentionButton
+                open={editTaskBodyMentionOpen}
+                options={editTaskBodyMentionOptions}
+                onOpen={openEditTaskBodyMentionPicker}
+                onInsert={insertEditTaskBodyMention}
               />
               <Select value={agentId} onValueChange={setAgentId}>
                 <SelectTrigger aria-label="Edit task assignee" className="w-52">
@@ -680,7 +729,12 @@ function TaskRow({
                 ) : null}
               </div>
               {task.body ? (
-                <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{task.body}</p>
+                <EntityMarkdown
+                  body={task.body}
+                  className="mt-2 whitespace-pre-wrap text-muted-foreground"
+                  mentionEntities={mentionEntities}
+                  onOpenEntity={onOpenEntity}
+                />
               ) : null}
               <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs text-muted-foreground">
                 <UserRound className="size-3" />
@@ -727,6 +781,7 @@ function DocumentsPage({
   documents,
   comments = [],
   tasks = [],
+  mentionEntities = [],
   query,
   onQueryChange,
   onBack,
@@ -739,12 +794,14 @@ function DocumentsPage({
   onUpdateDocumentComment,
   onDeleteDocumentComment,
   onSendToAgent,
+  onOpenEntity,
   canSendToAgent = false,
   agentName = 'Agent',
 }: {
   documents: DocumentListItem[];
   comments?: DocumentCommentListItem[];
   tasks?: TaskListItem[];
+  mentionEntities?: WorkspaceEntity[];
   query: string;
   onQueryChange?: (value: string) => void;
   onBack: () => void;
@@ -757,6 +814,7 @@ function DocumentsPage({
   onUpdateDocumentComment?: (input: UpdateDocumentCommentInput) => Promise<void>;
   onDeleteDocumentComment?: (input: DeleteDocumentCommentInput) => Promise<void>;
   onSendToAgent?: (content: string) => Promise<void>;
+  onOpenEntity?: (entity: WorkspaceEntityRef) => void;
   canSendToAgent?: boolean;
   agentName?: string;
 }): React.JSX.Element {
@@ -768,7 +826,6 @@ function DocumentsPage({
   const [saveState, setSaveState] = useState<DocumentSaveState>('idle');
   const [commentAnchor, setCommentAnchor] = useState<DocumentCommentAnchor | null>(null);
   const [activeCommentId, setActiveCommentId] = useState('');
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const selectedComments = useMemo(
     () => (selected ? comments.filter((comment) => comment.documentId === selected.id) : []),
     [comments, selected],
@@ -784,6 +841,19 @@ function DocumentsPage({
   });
   const updateDocumentRef = useRef(onUpdateDocument);
   const saveRequestRef = useRef(0);
+  const {
+    textareaRef: documentBodyMentionRef,
+    mentionOpen: documentBodyMentionOpen,
+    mentionOptions: documentBodyMentionOptions,
+    openMentionPicker: openDocumentBodyMentionPicker,
+    insertMention: insertDocumentBodyMention,
+    handleChange: handleDocumentBodyMentionChange,
+    handleKeyDown: handleDocumentBodyMentionKeyDown,
+  } = useEntityMentionInput({
+    value: body,
+    entities: mentionEntities,
+    onValueChange: editBody,
+  });
   const autoSaveText = useMemo(() => {
     if (!selected) return '';
     if (!title.trim()) return 'Title required';
@@ -965,8 +1035,8 @@ function DocumentsPage({
     setActiveCommentId(comment.id);
     const start = Math.min(comment.anchorStart, body.length);
     const end = Math.min(Math.max(comment.anchorEnd, start), body.length);
-    editorRef.current?.focus();
-    editorRef.current?.setSelectionRange(start, end);
+    documentBodyMentionRef.current?.focus();
+    documentBodyMentionRef.current?.setSelectionRange(start, end);
   }
 
   function showCommentAnchorById(commentId: string): void {
@@ -1094,15 +1164,22 @@ function DocumentsPage({
             </header>
             <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(300px,0.85fr)_300px] border-t max-xl:grid-cols-1">
               <section className="flex min-h-0 flex-col border-r max-lg:border-b max-lg:border-r-0">
-                <div className="flex h-9 shrink-0 items-center px-5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Editor
+                <div className="flex h-9 shrink-0 items-center justify-between px-5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <span>Editor</span>
+                  <EntityMentionButton
+                    open={documentBodyMentionOpen}
+                    options={documentBodyMentionOptions}
+                    onOpen={openDocumentBodyMentionPicker}
+                    onInsert={insertDocumentBodyMention}
+                  />
                 </div>
                 <Textarea
-                  ref={editorRef}
+                  ref={documentBodyMentionRef}
                   aria-label="Document markdown"
                   value={body}
                   className="min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-5 py-3 font-mono text-[13px] leading-6 shadow-none focus-visible:ring-0 dark:bg-transparent"
-                  onChange={(event) => editBody(event.target.value)}
+                  onChange={handleDocumentBodyMentionChange}
+                  onKeyDown={handleDocumentBodyMentionKeyDown}
                   onMouseUp={captureEditorSelection}
                   onKeyUp={captureEditorSelection}
                 />
@@ -1117,7 +1194,9 @@ function DocumentsPage({
                       body={body}
                       commentAnchors={selectedComments}
                       activeCommentId={activeCommentId}
+                      mentionEntities={mentionEntities}
                       onShowAnchor={showCommentAnchorById}
+                      onOpenEntity={onOpenEntity}
                     />
                   </div>
                 </ScrollArea>
@@ -1136,6 +1215,8 @@ function DocumentsPage({
                 canSendToAgent={canSendToAgent}
                 onSendDraftToAgent={sendCommentToAgent}
                 onSendCommentToAgent={sendCommentToAgent}
+                mentionEntities={mentionEntities}
+                onOpenEntity={onOpenEntity}
               />
             </div>
           </div>
@@ -1192,6 +1273,8 @@ function DocumentCommentsPanel({
   canSendToAgent,
   onSendDraftToAgent,
   onSendCommentToAgent,
+  mentionEntities = [],
+  onOpenEntity,
 }: {
   comments: DocumentCommentListItem[];
   documentId: string;
@@ -1208,9 +1291,24 @@ function DocumentCommentsPanel({
     comment: Pick<DocumentCommentListItem, 'body' | 'anchorText' | 'anchorStart' | 'anchorEnd'>,
   ) => Promise<void>;
   onSendCommentToAgent: (comment: DocumentCommentListItem) => Promise<void>;
+  mentionEntities?: WorkspaceEntity[];
+  onOpenEntity?: (entity: WorkspaceEntityRef) => void;
 }): React.JSX.Element {
   const [body, setBody] = useState('');
   const [commentBusy, setCommentBusy] = useState(false);
+  const {
+    textareaRef: newCommentMentionRef,
+    mentionOpen: newCommentMentionOpen,
+    mentionOptions: newCommentMentionOptions,
+    openMentionPicker: openNewCommentMentionPicker,
+    insertMention: insertNewCommentMention,
+    handleChange: handleNewCommentMentionChange,
+    handleKeyDown: handleNewCommentMentionKeyDown,
+  } = useEntityMentionInput({
+    value: body,
+    entities: mentionEntities,
+    onValueChange: setBody,
+  });
   const disabled = busy || commentBusy;
 
   async function createComment(sendToAgent = false): Promise<void> {
@@ -1270,13 +1368,23 @@ function DocumentCommentsPanel({
           </div>
         ) : null}
         <Textarea
+          ref={newCommentMentionRef}
           aria-label="New document comment"
           value={body}
           placeholder="Add a comment..."
           className="min-h-20 resize-none rounded-lg bg-background/40 text-sm"
-          onChange={(event) => setBody(event.target.value)}
+          onChange={handleNewCommentMentionChange}
+          onKeyDown={handleNewCommentMentionKeyDown}
         />
         <div className="mt-2 flex justify-end">
+          <EntityMentionButton
+            className="mr-auto"
+            ariaLabel="Mention entity in comment"
+            open={newCommentMentionOpen}
+            options={newCommentMentionOptions}
+            onOpen={openNewCommentMentionPicker}
+            onInsert={insertNewCommentMention}
+          />
           {canSendToAgent ? (
             <Button
               className="mr-2"
@@ -1311,6 +1419,8 @@ function DocumentCommentsPanel({
               onShowAnchor={onShowAnchor}
               canSendToAgent={canSendToAgent}
               onSendToAgent={onSendCommentToAgent}
+              mentionEntities={mentionEntities}
+              onOpenEntity={onOpenEntity}
             />
           ))}
           {comments.length === 0 ? (
@@ -1334,6 +1444,8 @@ function DocumentCommentRow({
   onShowAnchor,
   canSendToAgent,
   onSendToAgent,
+  mentionEntities,
+  onOpenEntity,
 }: {
   comment: DocumentCommentListItem;
   busy: boolean;
@@ -1343,10 +1455,25 @@ function DocumentCommentRow({
   onShowAnchor: (comment: DocumentCommentListItem) => void;
   canSendToAgent: boolean;
   onSendToAgent: (comment: DocumentCommentListItem) => Promise<void>;
+  mentionEntities: WorkspaceEntity[];
+  onOpenEntity?: (entity: WorkspaceEntityRef) => void;
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState(comment.body);
   const resolved = comment.status === 'resolved';
+  const {
+    textareaRef: editCommentMentionRef,
+    mentionOpen: editCommentMentionOpen,
+    mentionOptions: editCommentMentionOptions,
+    openMentionPicker: openEditCommentMentionPicker,
+    insertMention: insertEditCommentMention,
+    handleChange: handleEditCommentMentionChange,
+    handleKeyDown: handleEditCommentMentionKeyDown,
+  } = useEntityMentionInput({
+    value: body,
+    entities: mentionEntities,
+    onValueChange: setBody,
+  });
 
   async function saveComment(nextStatus = comment.status): Promise<void> {
     if (!body.trim() || !onUpdate) return;
@@ -1429,10 +1556,19 @@ function DocumentCommentRow({
       {editing ? (
         <div className="mt-3 space-y-2">
           <Textarea
+            ref={editCommentMentionRef}
             aria-label="Edit document comment"
             value={body}
             className="min-h-20 resize-none text-sm"
-            onChange={(event) => setBody(event.target.value)}
+            onChange={handleEditCommentMentionChange}
+            onKeyDown={handleEditCommentMentionKeyDown}
+          />
+          <EntityMentionButton
+            ariaLabel="Mention entity in comment"
+            open={editCommentMentionOpen}
+            options={editCommentMentionOptions}
+            onOpen={openEditCommentMentionPicker}
+            onInsert={insertEditCommentMention}
           />
           <div className="flex gap-2">
             <Button
@@ -1459,7 +1595,12 @@ function DocumentCommentRow({
               {comment.anchorText}
             </button>
           ) : null}
-          <p className="mt-3 whitespace-pre-wrap text-muted-foreground">{comment.body}</p>
+          <EntityMarkdown
+            body={comment.body}
+            className="mt-3 whitespace-pre-wrap text-muted-foreground"
+            mentionEntities={mentionEntities}
+            onOpenEntity={onOpenEntity}
+          />
         </>
       )}
       {comment.repairStatus === 'needs_repair' ? (

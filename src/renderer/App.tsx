@@ -26,9 +26,6 @@ import {
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import rehypeSanitize from 'rehype-sanitize';
-import remarkGfm from 'remark-gfm';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -71,12 +68,15 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import f5LogoDarkUrl from '../../resources/icon-dark.png';
 import f5LogoUrl from '../../resources/icon.png';
 import { fallbackSnapshot } from '@/data/fallback';
+import { EntityMarkdown } from '@/features/entity-markdown';
+import { EntityMentionButton, useEntityMentionInput } from '@/features/entity-mentions';
 import { TaskWorkbenchPage } from '@/features/task-workbench';
 import { WorkspaceBoardPage } from '@/features/workspace-board';
 import { DocumentsPage, TasksPage } from '@/features/workspace-resources';
 import { f5Api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { HUMAN_ASSIGNEE_ID } from '../shared/types';
+import { workspaceEntitiesFromSnapshot } from '../shared/workspace-entities';
 import type {
   AgentConfig,
   AgentConnectionTestResult,
@@ -101,6 +101,8 @@ import type {
   UpdateProfileInput,
   UpdateTaskListInput,
   UpdateTaskInput,
+  WorkspaceEntity,
+  WorkspaceEntityRef,
   WorkspaceSnapshot,
 } from '../shared/types';
 
@@ -174,6 +176,7 @@ function WorkspaceApp(): React.JSX.Element {
   }, []);
 
   const active = snapshot.activeConversation;
+  const mentionEntities = useMemo(() => workspaceEntitiesFromSnapshot(snapshot), [snapshot]);
   const resolvedTheme = themePreference === 'system' ? systemTheme : themePreference;
   const resolvedIconTheme = iconThemePreference === 'system' ? systemTheme : iconThemePreference;
   const currentLogoUrl = resolvedIconTheme === 'dark' ? f5LogoDarkUrl : f5LogoUrl;
@@ -415,6 +418,20 @@ function WorkspaceApp(): React.JSX.Element {
     if (next) setView('workspace');
   }
 
+  function openWorkspaceEntity(entity: WorkspaceEntityRef): void {
+    if (entity.kind === 'conversation') {
+      setView('workspace');
+      void updateSnapshot(f5Api.initializeWorkspace(entity.id));
+      return;
+    }
+    if (entity.kind === 'agent') {
+      setView('agent-profile');
+      return;
+    }
+    setQuery(entity.label);
+    setView(entity.kind === 'document' ? 'documents' : 'tasks');
+  }
+
   return (
     <div className={cn('liquid-window h-full overflow-hidden', resolvedTheme === 'dark' && 'dark')}>
       <main className="h-full overflow-hidden text-foreground">
@@ -477,6 +494,7 @@ function WorkspaceApp(): React.JSX.Element {
               <WorkspaceSurface
                 view={view}
                 snapshot={snapshot}
+                mentionEntities={mentionEntities}
                 active={active}
                 activeTaskId={activeTaskId}
                 taskLists={snapshot.taskLists}
@@ -553,6 +571,7 @@ function WorkspaceApp(): React.JSX.Element {
                 onUpdateDocumentComment={updateDocumentComment}
                 onDeleteDocumentComment={deleteDocumentComment}
                 onSendToAgent={sendAgentPrompt}
+                onOpenEntity={openWorkspaceEntity}
                 onRevealDocument={(documentId) =>
                   f5Api.revealDocument(documentId).then(() => undefined)
                 }
@@ -976,6 +995,7 @@ function ConversationGroup(props: {
 function WorkspaceSurface(props: {
   view: AppView;
   snapshot: WorkspaceSnapshot;
+  mentionEntities: WorkspaceEntity[];
   active?: OpenConversation;
   activeTaskId: string;
   taskLists: WorkspaceSnapshot['taskLists'];
@@ -1022,6 +1042,7 @@ function WorkspaceSurface(props: {
   onUpdateDocumentComment: (input: UpdateDocumentCommentInput) => Promise<void>;
   onDeleteDocumentComment: (input: DeleteDocumentCommentInput) => Promise<void>;
   onSendToAgent: (content: string) => Promise<void>;
+  onOpenEntity: (entity: WorkspaceEntityRef) => void;
   onRevealDocument: (documentId: string) => Promise<void>;
   onOpenTaskConversation: (conversationId: string) => void;
   onStartTaskChat: (taskId: string) => void;
@@ -1056,6 +1077,7 @@ function WorkspaceSurface(props: {
         agents={props.snapshot.agents}
         defaultAgentId={props.snapshot.profile.defaultAgentId}
         profileDisplayName={props.snapshot.profile.displayName}
+        mentionEntities={props.mentionEntities}
         query={props.query}
         onQueryChange={props.onQueryChange}
         onBack={props.onBack}
@@ -1065,6 +1087,7 @@ function WorkspaceSurface(props: {
         onCreateTask={props.onCreateTask}
         onUpdateTask={props.onUpdateTask}
         onDeleteTask={props.onDeleteTask}
+        onOpenEntity={props.onOpenEntity}
       />
     );
   }
@@ -1097,6 +1120,7 @@ function WorkspaceSurface(props: {
         documents={props.documents}
         comments={props.documentComments}
         tasks={props.snapshot.tasks}
+        mentionEntities={props.mentionEntities}
         query={props.query}
         onQueryChange={props.onQueryChange}
         onBack={props.onBack}
@@ -1109,6 +1133,7 @@ function WorkspaceSurface(props: {
         onDeleteDocumentComment={props.onDeleteDocumentComment}
         onRevealDocument={props.onRevealDocument}
         onSendToAgent={props.onSendToAgent}
+        onOpenEntity={props.onOpenEntity}
         canSendToAgent={Boolean(active)}
         agentName={active?.agent.name ?? 'Agent'}
       />
@@ -1149,11 +1174,14 @@ function WorkspaceSurface(props: {
               <MessageTimeline
                 active={active}
                 profileDisplayName={props.snapshot.profile.displayName}
+                mentionEntities={props.mentionEntities}
+                onOpenEntity={props.onOpenEntity}
                 onCancelQueued={props.onCancelQueued}
               />
               <ChatComposer
                 active={active}
                 draft={props.draft}
+                mentionEntities={props.mentionEntities}
                 onDraftChange={props.onDraftChange}
                 onSend={props.onSend}
                 onRevealFiles={props.onReveal}
@@ -1260,9 +1288,12 @@ function ChatHeader(props: {
   );
 }
 
+// MessageTimeline renders all message states with the same entity mention display behavior.
 function MessageTimeline(props: {
   active: OpenConversation;
   profileDisplayName: string;
+  mentionEntities: WorkspaceEntity[];
+  onOpenEntity: (entity: WorkspaceEntityRef) => void;
   onCancelQueued: (messageId: string) => void;
 }): React.JSX.Element {
   const messages = props.active.messages;
@@ -1281,15 +1312,25 @@ function MessageTimeline(props: {
             <QueuedPromptCard
               key={message.meta.id}
               message={message}
+              mentionEntities={props.mentionEntities}
+              onOpenEntity={props.onOpenEntity}
               onCancel={props.onCancelQueued}
             />
           ) : message.meta.role === 'assistant' ? (
-            <AgentMessage key={message.meta.id} active={props.active} message={message} />
+            <AgentMessage
+              key={message.meta.id}
+              active={props.active}
+              message={message}
+              mentionEntities={props.mentionEntities}
+              onOpenEntity={props.onOpenEntity}
+            />
           ) : (
             <UserMessage
               key={message.meta.id}
               message={message}
               profileDisplayName={props.profileDisplayName}
+              mentionEntities={props.mentionEntities}
+              onOpenEntity={props.onOpenEntity}
             />
           ),
         )}
@@ -1301,9 +1342,13 @@ function MessageTimeline(props: {
 function UserMessage({
   message,
   profileDisplayName,
+  mentionEntities,
+  onOpenEntity,
 }: {
   message: MessageRecord;
   profileDisplayName: string;
+  mentionEntities: WorkspaceEntity[];
+  onOpenEntity: (entity: WorkspaceEntityRef) => void;
 }): React.JSX.Element {
   return (
     <div className="flex gap-4">
@@ -1313,9 +1358,11 @@ function UserMessage({
           <span className="font-medium">You</span>
           <span className="text-xs text-muted-foreground">10:31 AM</span>
         </div>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-          {message.body}
-        </ReactMarkdown>
+        <EntityMarkdown
+          body={message.body}
+          mentionEntities={mentionEntities}
+          onOpenEntity={onOpenEntity}
+        />
       </div>
     </div>
   );
@@ -1324,9 +1371,13 @@ function UserMessage({
 function AgentMessage({
   active,
   message,
+  mentionEntities,
+  onOpenEntity,
 }: {
   active: OpenConversation;
   message: MessageRecord;
+  mentionEntities: WorkspaceEntity[];
+  onOpenEntity: (entity: WorkspaceEntityRef) => void;
 }): React.JSX.Element {
   return (
     <div className="flex gap-4">
@@ -1340,9 +1391,11 @@ function AgentMessage({
           <span className="text-xs text-muted-foreground">10:31 AM</span>
         </div>
         <div className="liquid-glass-control rounded-xl border p-4 text-sm">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-            {message.body}
-          </ReactMarkdown>
+          <EntityMarkdown
+            body={message.body}
+            mentionEntities={mentionEntities}
+            onOpenEntity={onOpenEntity}
+          />
           {active.state.plan.length ? <InlinePlan steps={active.state.plan} /> : null}
           <div className="mt-5 flex items-center gap-2 text-sm">
             <span>
@@ -1371,11 +1424,16 @@ function InlinePlan({ steps }: { steps: PlanStep[] }): React.JSX.Element {
   );
 }
 
+// QueuedPromptCard mirrors regular user messages while keeping cancellation visible.
 function QueuedPromptCard({
   message,
+  mentionEntities,
+  onOpenEntity,
   onCancel,
 }: {
   message: MessageRecord;
+  mentionEntities: WorkspaceEntity[];
+  onOpenEntity: (entity: WorkspaceEntityRef) => void;
   onCancel: (messageId: string) => void;
 }): React.JSX.Element {
   return (
@@ -1397,7 +1455,11 @@ function QueuedPromptCard({
           Cancel
         </Button>
       </div>
-      <p>{message.body}</p>
+      <EntityMarkdown
+        body={message.body}
+        mentionEntities={mentionEntities}
+        onOpenEntity={onOpenEntity}
+      />
       <p className="mt-3 text-xs text-muted-foreground">
         Agent will process this after current step completes.
       </p>
@@ -1405,10 +1467,11 @@ function QueuedPromptCard({
   );
 }
 
-// Composer mirrors the reference design: tabs, Markdown indicator, compact tool icons, agent selector, and send.
+// ChatComposer owns inline mention picking because cursor range and draft updates need to stay together.
 function ChatComposer(props: {
   active: OpenConversation;
   draft: string;
+  mentionEntities: WorkspaceEntity[];
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onRevealFiles: () => void;
@@ -1417,25 +1480,42 @@ function ChatComposer(props: {
 }): React.JSX.Element {
   const busy = Boolean(props.active.state.activeTurnId);
   const connection = connectionState(props.active.agent);
+  const {
+    textareaRef: mentionTextareaRef,
+    mentionOpen,
+    mentionOptions,
+    openMentionPicker,
+    insertMention,
+    handleChange: handleMentionChange,
+    handleKeyDown: handleMentionKeyDown,
+  } = useEntityMentionInput({
+    value: props.draft,
+    entities: props.mentionEntities,
+    onValueChange: props.onDraftChange,
+  });
+
   function insertText(value: string): void {
     props.onDraftChange(props.draft ? `${props.draft}\n${value}` : value);
   }
+
   return (
     <div className="shrink-0 px-6 pb-7">
       <div className="liquid-glass mx-auto w-full max-w-3xl rounded-xl border p-3">
         <Tabs defaultValue="message">
           <TabsList className="mb-2">
             <TabsTrigger value="message">Message</TabsTrigger>
-            <TabsTrigger value="agent">@ Agent</TabsTrigger>
+            <TabsTrigger value="entity">@ Entity</TabsTrigger>
           </TabsList>
         </Tabs>
         <Textarea
+          ref={mentionTextareaRef}
           aria-label="Message composer"
           value={props.draft}
           placeholder={busy ? 'Agent is running. Send to queue...' : 'Ask anything...'}
           className="min-h-16 resize-none border-0 p-0 shadow-none focus-visible:ring-0"
-          onChange={(event) => props.onDraftChange(event.target.value)}
+          onChange={handleMentionChange}
           onKeyDown={(event) => {
+            if (handleMentionKeyDown(event)) return;
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') props.onSend();
           }}
         />
@@ -1449,6 +1529,12 @@ function ChatComposer(props: {
             label="Insert code block"
             icon={Code2}
             onClick={() => insertText('```\\n\\n```')}
+          />
+          <EntityMentionButton
+            open={mentionOpen}
+            options={mentionOptions}
+            onOpen={openMentionPicker}
+            onInsert={insertMention}
           />
           <IconButton label="Toggle agent panel" icon={Grid2X2} onClick={props.onTogglePanel} />
           <DropdownMenu>
@@ -2177,3 +2263,5 @@ function IconButton({
     </Tooltip>
   );
 }
+
+export { ChatComposer };

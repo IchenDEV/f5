@@ -58,6 +58,7 @@ import type {
 import { HUMAN_ASSIGNEE_ID } from '../../src/shared/types';
 import { AcpStdioClient } from './acp-client';
 import { makeLocalId, nowIso, WorkspaceStore } from './workspace-store';
+import { WorkspaceEntityService } from './workspace-entity-service';
 
 const CONTEXT_MESSAGE_LIMIT = 24;
 const CONTEXT_CHAR_LIMIT = 30000;
@@ -75,8 +76,11 @@ interface CodexStreamUpdate {
 export class ConversationEngine {
   private activeTurns = new Map<string, ActiveTurn>();
   private windows = new Set<BrowserWindow>();
+  private readonly entityService: WorkspaceEntityService;
 
-  constructor(private readonly store: WorkspaceStore) {}
+  constructor(private readonly store: WorkspaceStore) {
+    this.entityService = new WorkspaceEntityService(store);
+  }
 
   addWindow(window: BrowserWindow): void {
     this.windows.add(window);
@@ -351,7 +355,8 @@ export class ConversationEngine {
     this.activeTurns.set(conversationId, active);
     const open = await this.store.openConversation(conversationId);
     const agent = open.agent;
-    const turnPrompt = buildTurnPrompt(open, userMessageId, prompt);
+    const entityContext = await this.entityService.buildPromptContext(prompt);
+    const turnPrompt = buildTurnPrompt(open, userMessageId, prompt, entityContext);
     if (!agent.enabled || agent.availability !== 'available') {
       await this.failTurn(
         conversationId,
@@ -749,6 +754,7 @@ export function buildTurnPrompt(
   open: OpenConversation,
   userMessageId: string,
   latestPrompt: string,
+  entityContext = '',
 ): string {
   const history = open.messages
     .filter((message) => message.meta.id !== userMessageId)
@@ -768,6 +774,7 @@ export function buildTurnPrompt(
     '',
     '## Conversation history',
     formattedHistory || 'No prior messages.',
+    ...(entityContext ? ['', '## Referenced workspace entities', entityContext] : []),
     '',
     '## Latest user message',
     latestPrompt.trim(),
