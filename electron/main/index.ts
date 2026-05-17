@@ -10,7 +10,7 @@ process.title = APP_DISPLAY_NAME;
 app.name = APP_DISPLAY_NAME;
 app.setName(APP_DISPLAY_NAME);
 
-const store = new WorkspaceStore(join(app.getPath('userData'), 'workspace'));
+const store = new WorkspaceStore(join(app.getPath('userData'), 'workspace-v2'));
 const engine = new ConversationEngine(store);
 let aboutWindow: BrowserWindow | undefined;
 let helpWindow: BrowserWindow | undefined;
@@ -446,7 +446,7 @@ function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: Number.isFinite(initialWidth) ? initialWidth : 1500,
     height: Number.isFinite(initialHeight) ? initialHeight : 980,
-    minWidth: 960,
+    minWidth: 420,
     minHeight: 640,
     backgroundColor: isMac ? '#00000000' : '#f0f0f4',
     transparent: isMac,
