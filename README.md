@@ -14,6 +14,7 @@ F5 is a local AI workspace for assigning tasks, tracking AI and human work, and 
 - Agent side panel for plan steps, tool activity, session details, and raw logs.
 - Conversation actions for star, rename, archive, delete, export, and showing file location.
 - Profile, agent, Board, Docs, theme switching, and macOS menu support.
+- v2 workbench structure with separate app shell, chat, TODO, Docs, shared resource UI, and main storage primitives.
 
 ## Stack
 
@@ -47,11 +48,13 @@ The development app opens as an Electron window and serves the renderer at `http
 
 ## Local Data
 
-F5 stores workspace data in the app support folder:
+F5 v2 stores new workspace data in the app support folder:
 
 ```text
-~/Library/Application Support/F5/workspace
+~/Library/Application Support/F5/workspace-v2
 ```
+
+Older development data under `~/Library/Application Support/F5/workspace` is left untouched.
 
 Each conversation is stored as a folder with:
 
@@ -72,6 +75,17 @@ Workspace resources are stored beside conversations:
 - `documents/comments/index.json`: derived document comment index.
 
 Use `Help > Show Workspace Folder` in the app menu to open the workspace folder directly.
+
+## Code Structure
+
+- `src/renderer/App.tsx`: React provider entry.
+- `src/renderer/app/`: workspace shell, navigation, profile pages, and shared workbench primitives.
+- `src/renderer/features/chat/`: conversation list, message timeline, composer, agent panel, and chat dialogs.
+- `src/renderer/features/tasks/`: TODO list and task UI.
+- `src/renderer/features/documents/`: Markdown document editor, preview, comments, and agent handoff.
+- `src/renderer/features/resources/`: shared resource page shell and delete dialog.
+- `src/renderer/lib/f5-api.ts`: typed v2 renderer API wrapper.
+- `electron/main/storage/`: storage primitives and default agent configuration.
 
 ## Code Comments
 
